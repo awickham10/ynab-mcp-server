@@ -1,0 +1,12 @@
+[project]
+name = "ynab-mcp-server"
+version = "0.1.0"
+description = "Connect LLMs with your YNAB plans."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp==2.12.4",
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+]
