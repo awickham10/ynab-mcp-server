@@ -10,6 +10,11 @@ from ..services import YNABService
 from ..exceptions import YNABAPIException, BudgetNotFoundException, AccountNotFoundException, PayeeNotFoundException, CategoryNotFoundException
 
 
+def _is_memo_empty(memo: Optional[str]) -> bool:
+    """Check if a memo is empty or blank (None, empty string, or only whitespace)"""
+    return memo is None or memo.strip() == ""
+
+
 def register_tools(mcp: FastMCP) -> None:
     """Register all YNAB tools with the MCP server"""
     
@@ -128,7 +133,8 @@ def register_tools(mcp: FastMCP) -> None:
         payee_id: Optional[str] = None,
         category_id: Optional[str] = None,
         since_date: Optional[str] = None,
-        transaction_type: Optional[str] = None
+        transaction_type: Optional[str] = None,
+        empty_memo: Optional[bool] = None
     ) -> dict:
         """Get transactions for a specific budget with smart compound filtering
         
@@ -149,6 +155,7 @@ def register_tools(mcp: FastMCP) -> None:
             category_id: Optional category ID to filter transactions for a specific category
             since_date: Optional date to filter transactions (format: YYYY-MM-DD)
             transaction_type: Optional transaction type filter ('uncategorized' or 'unapproved')
+            empty_memo: Optional boolean to filter transactions with empty/blank memo (True) or non-empty memo (False)
         
         Returns:
             Dictionary containing transaction information with applied filters
@@ -181,6 +188,11 @@ def register_tools(mcp: FastMCP) -> None:
                     filtered_transactions = [t for t in filtered_transactions if t.payee_id == payee_id]
                 if category_id:
                     filtered_transactions = [t for t in filtered_transactions if t.category_id == category_id]
+                if empty_memo is not None:
+                    if empty_memo:
+                        filtered_transactions = [t for t in filtered_transactions if _is_memo_empty(t.memo)]
+                    else:
+                        filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
                 response = {
                     "transactions": [transaction.model_dump() for transaction in filtered_transactions],
@@ -192,6 +204,8 @@ def register_tools(mcp: FastMCP) -> None:
                     response["payee_id"] = payee_id
                 if category_id:
                     response["category_id"] = category_id
+                if empty_memo is not None:
+                    response["empty_memo"] = empty_memo
                     
                 return response
                 
@@ -205,10 +219,15 @@ def register_tools(mcp: FastMCP) -> None:
                     transaction_type=transaction_type
                 )
                 
-                # Filter by payee in-memory
+                # Filter by payee and memo in-memory
                 filtered_transactions = [t for t in transactions if t.payee_id == payee_id]
+                if empty_memo is not None:
+                    if empty_memo:
+                        filtered_transactions = [t for t in filtered_transactions if _is_memo_empty(t.memo)]
+                    else:
+                        filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
-                return {
+                response = {
                     "transactions": [transaction.model_dump() for transaction in filtered_transactions],
                     "count": len(filtered_transactions),
                     "category_id": category_id,
@@ -216,6 +235,10 @@ def register_tools(mcp: FastMCP) -> None:
                     "budget_id": budget_id,
                     "filtered_by": "category_then_payee"
                 }
+                if empty_memo is not None:
+                    response["empty_memo"] = empty_memo
+                
+                return response
                 
             elif category_id:
                 # Only category specified, use category endpoint
@@ -225,12 +248,25 @@ def register_tools(mcp: FastMCP) -> None:
                     since_date=since_date,
                     transaction_type=transaction_type
                 )
-                return {
-                    "transactions": [transaction.model_dump() for transaction in transactions],
-                    "count": len(transactions),
+                
+                # Apply memo filter if specified
+                filtered_transactions = transactions
+                if empty_memo is not None:
+                    if empty_memo:
+                        filtered_transactions = [t for t in filtered_transactions if _is_memo_empty(t.memo)]
+                    else:
+                        filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
+                
+                response = {
+                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "count": len(filtered_transactions),
                     "category_id": category_id,
                     "budget_id": budget_id
                 }
+                if empty_memo is not None:
+                    response["empty_memo"] = empty_memo
+                
+                return response
                 
             elif payee_id:
                 # Only payee specified, use payee endpoint
@@ -240,12 +276,25 @@ def register_tools(mcp: FastMCP) -> None:
                     since_date=since_date,
                     transaction_type=transaction_type
                 )
-                return {
-                    "transactions": [transaction.model_dump() for transaction in transactions],
-                    "count": len(transactions),
+                
+                # Apply memo filter if specified
+                filtered_transactions = transactions
+                if empty_memo is not None:
+                    if empty_memo:
+                        filtered_transactions = [t for t in filtered_transactions if _is_memo_empty(t.memo)]
+                    else:
+                        filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
+                
+                response = {
+                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "count": len(filtered_transactions),
                     "payee_id": payee_id,
                     "budget_id": budget_id
                 }
+                if empty_memo is not None:
+                    response["empty_memo"] = empty_memo
+                
+                return response
             else:
                 # No specific filters, get all transactions
                 transactions = await service.get_transactions(
@@ -253,11 +302,24 @@ def register_tools(mcp: FastMCP) -> None:
                     since_date=since_date,
                     transaction_type=transaction_type
                 )
-                return {
-                    "transactions": [transaction.model_dump() for transaction in transactions],
-                    "count": len(transactions),
+                
+                # Apply memo filter if specified
+                filtered_transactions = transactions
+                if empty_memo is not None:
+                    if empty_memo:
+                        filtered_transactions = [t for t in filtered_transactions if _is_memo_empty(t.memo)]
+                    else:
+                        filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
+                
+                response = {
+                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "count": len(filtered_transactions),
                     "budget_id": budget_id
                 }
+                if empty_memo is not None:
+                    response["empty_memo"] = empty_memo
+                
+                return response
         except BudgetNotFoundException as e:
             return {"error": str(e), "budget_id": e.budget_id}
         except AccountNotFoundException as e:
