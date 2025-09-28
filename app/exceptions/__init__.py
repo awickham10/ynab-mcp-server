@@ -54,6 +54,14 @@ class PayeeNotFoundException(YNABAPIException):
         self.payee_id = payee_id
 
 
+class CategoryNotFoundException(YNABAPIException):
+    """Exception raised when a category is not found"""
+    
+    def __init__(self, category_id: str):
+        super().__init__(f"Category with ID '{category_id}' not found", status_code=404)
+        self.category_id = category_id
+
+
 class InvalidDateException(YNABMCPException):
     """Exception raised for invalid date formats"""
     

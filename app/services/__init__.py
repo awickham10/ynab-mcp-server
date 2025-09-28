@@ -13,7 +13,8 @@ from ..models import (
 )
 from ..exceptions import (
     YNABAPIException, AuthenticationException, RateLimitException,
-    BudgetNotFoundException, AccountNotFoundException, PayeeNotFoundException, InvalidDateException
+    BudgetNotFoundException, AccountNotFoundException, PayeeNotFoundException, 
+    CategoryNotFoundException, InvalidDateException
 )
 
 
@@ -268,6 +269,54 @@ class YNABService:
                     raise BudgetNotFoundException(budget_id)
                 else:
                     raise PayeeNotFoundException(payee_id)
+            raise
+        
+        transactions_data = response["data"]["transactions"]
+        return [TransactionDetail(**transaction) for transaction in transactions_data]
+    
+    async def get_category_transactions(
+        self, 
+        budget_id: str, 
+        category_id: str,
+        since_date: Optional[str] = None,
+        transaction_type: Optional[str] = None,
+        last_knowledge_of_server: Optional[int] = None
+    ) -> List[TransactionDetail]:
+        """Get all transactions for a specific category in a budget
+        
+        Args:
+            budget_id: The budget ID
+            category_id: The category ID
+            since_date: Optional date filter (YYYY-MM-DD format)
+            transaction_type: Optional transaction type filter ('uncategorized' or 'unapproved')
+            last_knowledge_of_server: Optional server knowledge parameter
+            
+        Returns:
+            List of transaction details for the specified category
+        """
+        if since_date:
+            self._validate_date_format(since_date)
+        
+        params = {}
+        if since_date:
+            params["since_date"] = since_date
+        if transaction_type:
+            params["type"] = transaction_type
+        if last_knowledge_of_server:
+            params["last_knowledge_of_server"] = last_knowledge_of_server
+        
+        endpoint = f"/budgets/{budget_id}/categories/{category_id}/transactions"
+        
+        try:
+            response = await self._make_request("GET", endpoint, params)
+        except YNABAPIException as e:
+            if e.status_code == 404:
+                # Check if it's budget not found or category not found
+                # YNAB API will return different error messages for budget vs category not found
+                if "budget" in str(e).lower():
+                    raise BudgetNotFoundException(budget_id)
+                else:
+                    raise CategoryNotFoundException(category_id)
             raise
         
         transactions_data = response["data"]["transactions"]

@@ -7,7 +7,7 @@ from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_access_token
 
 from ..services import YNABService
-from ..exceptions import YNABAPIException, BudgetNotFoundException, AccountNotFoundException, PayeeNotFoundException
+from ..exceptions import YNABAPIException, BudgetNotFoundException, AccountNotFoundException, PayeeNotFoundException, CategoryNotFoundException
 
 
 def register_tools(mcp: FastMCP) -> None:
@@ -126,6 +126,7 @@ def register_tools(mcp: FastMCP) -> None:
         budget_id: str = "last-used", 
         account_id: Optional[str] = None,
         payee_id: Optional[str] = None,
+        category_id: Optional[str] = None,
         since_date: Optional[str] = None,
         transaction_type: Optional[str] = None
     ) -> dict:
@@ -135,6 +136,7 @@ def register_tools(mcp: FastMCP) -> None:
             budget_id: The ID of the budget (use 'last-used' for the most recent budget)
             account_id: Optional account ID to filter transactions for a specific account
             payee_id: Optional payee ID to filter transactions for a specific payee
+            category_id: Optional category ID to filter transactions for a specific category
             since_date: Optional date to filter transactions (format: YYYY-MM-DD)
             transaction_type: Optional transaction type filter ('uncategorized' or 'unapproved')
         
@@ -150,8 +152,9 @@ def register_tools(mcp: FastMCP) -> None:
             access_token = token.token
             service = YNABService(access_token)
             
-            # If payee_id is provided, use the payee transactions endpoint
+            # Determine which endpoint to use based on the provided filter parameters
             if payee_id:
+                # If payee_id is provided, use the payee transactions endpoint
                 transactions = await service.get_payee_transactions(
                     budget_id, 
                     payee_id,
@@ -164,8 +167,22 @@ def register_tools(mcp: FastMCP) -> None:
                     "payee_id": payee_id,
                     "budget_id": budget_id
                 }
+            elif category_id:
+                # If category_id is provided, use the category transactions endpoint
+                transactions = await service.get_category_transactions(
+                    budget_id, 
+                    category_id,
+                    since_date=since_date,
+                    transaction_type=transaction_type
+                )
+                return {
+                    "transactions": [transaction.model_dump() for transaction in transactions],
+                    "count": len(transactions),
+                    "category_id": category_id,
+                    "budget_id": budget_id
+                }
             else:
-                # Use the regular transactions endpoint
+                # Use the regular transactions endpoint (optionally filtered by account)
                 transactions = await service.get_transactions(
                     budget_id, 
                     account_id=account_id,
@@ -175,7 +192,8 @@ def register_tools(mcp: FastMCP) -> None:
                 return {
                     "transactions": [transaction.model_dump() for transaction in transactions],
                     "count": len(transactions),
-                    "account_id": account_id  # Include account_id in response for clarity
+                    "account_id": account_id,  # Include account_id in response for clarity
+                    "budget_id": budget_id
                 }
         except BudgetNotFoundException as e:
             return {"error": str(e), "budget_id": e.budget_id}
@@ -183,6 +201,8 @@ def register_tools(mcp: FastMCP) -> None:
             return {"error": str(e), "account_id": e.account_id}
         except PayeeNotFoundException as e:
             return {"error": str(e), "payee_id": e.payee_id}
+        except CategoryNotFoundException as e:
+            return {"error": str(e), "category_id": e.category_id}
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
