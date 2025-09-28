@@ -130,7 +130,17 @@ def register_tools(mcp: FastMCP) -> None:
         since_date: Optional[str] = None,
         transaction_type: Optional[str] = None
     ) -> dict:
-        """Get transactions for a specific budget
+        """Get transactions for a specific budget with smart compound filtering
+        
+        Supports multiple filter combinations and automatically chooses the most efficient
+        API endpoint to minimize data transfer, then applies additional filters in-memory.
+        
+        Filter Priority (for optimal performance):
+        1. Account + any other filters → Uses account endpoint, filters rest in-memory
+        2. Category + Payee → Uses category endpoint, filters payee in-memory  
+        3. Category only → Uses category endpoint
+        4. Payee only → Uses payee endpoint
+        5. No filters → Uses general transactions endpoint
         
         Args:
             budget_id: The ID of the budget (use 'last-used' for the most recent budget)
@@ -141,7 +151,7 @@ def register_tools(mcp: FastMCP) -> None:
             transaction_type: Optional transaction type filter ('uncategorized' or 'unapproved')
         
         Returns:
-            Dictionary containing transaction information
+            Dictionary containing transaction information with applied filters
         """
         try:
             # Get the authenticated user's access token
@@ -152,23 +162,63 @@ def register_tools(mcp: FastMCP) -> None:
             access_token = token.token
             service = YNABService(access_token)
             
-            # Determine which endpoint to use based on the provided filter parameters
-            if payee_id:
-                # If payee_id is provided, use the payee transactions endpoint
-                transactions = await service.get_payee_transactions(
+            # Smart endpoint selection to minimize data transfer
+            # Priority: account > category > payee > all transactions
+            
+            if account_id:
+                # Account transactions are typically the narrowest scope
+                # Use account endpoint and filter by payee/category in code
+                transactions = await service.get_transactions(
                     budget_id, 
-                    payee_id,
+                    account_id=account_id,
                     since_date=since_date,
                     transaction_type=transaction_type
                 )
-                return {
-                    "transactions": [transaction.model_dump() for transaction in transactions],
-                    "count": len(transactions),
-                    "payee_id": payee_id,
+                
+                # Apply additional filters in-memory
+                filtered_transactions = transactions
+                if payee_id:
+                    filtered_transactions = [t for t in filtered_transactions if t.payee_id == payee_id]
+                if category_id:
+                    filtered_transactions = [t for t in filtered_transactions if t.category_id == category_id]
+                
+                response = {
+                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "count": len(filtered_transactions),
+                    "account_id": account_id,
                     "budget_id": budget_id
                 }
+                if payee_id:
+                    response["payee_id"] = payee_id
+                if category_id:
+                    response["category_id"] = category_id
+                    
+                return response
+                
+            elif category_id and payee_id:
+                # Both category and payee specified (no account)
+                # Categories are typically more focused than payees, so use category endpoint
+                transactions = await service.get_category_transactions(
+                    budget_id, 
+                    category_id,
+                    since_date=since_date,
+                    transaction_type=transaction_type
+                )
+                
+                # Filter by payee in-memory
+                filtered_transactions = [t for t in transactions if t.payee_id == payee_id]
+                
+                return {
+                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "count": len(filtered_transactions),
+                    "category_id": category_id,
+                    "payee_id": payee_id,
+                    "budget_id": budget_id,
+                    "filtered_by": "category_then_payee"
+                }
+                
             elif category_id:
-                # If category_id is provided, use the category transactions endpoint
+                # Only category specified, use category endpoint
                 transactions = await service.get_category_transactions(
                     budget_id, 
                     category_id,
@@ -181,18 +231,31 @@ def register_tools(mcp: FastMCP) -> None:
                     "category_id": category_id,
                     "budget_id": budget_id
                 }
-            else:
-                # Use the regular transactions endpoint (optionally filtered by account)
-                transactions = await service.get_transactions(
+                
+            elif payee_id:
+                # Only payee specified, use payee endpoint
+                transactions = await service.get_payee_transactions(
                     budget_id, 
-                    account_id=account_id,
+                    payee_id,
                     since_date=since_date,
                     transaction_type=transaction_type
                 )
                 return {
                     "transactions": [transaction.model_dump() for transaction in transactions],
                     "count": len(transactions),
-                    "account_id": account_id,  # Include account_id in response for clarity
+                    "payee_id": payee_id,
+                    "budget_id": budget_id
+                }
+            else:
+                # No specific filters, get all transactions
+                transactions = await service.get_transactions(
+                    budget_id, 
+                    since_date=since_date,
+                    transaction_type=transaction_type
+                )
+                return {
+                    "transactions": [transaction.model_dump() for transaction in transactions],
+                    "count": len(transactions),
                     "budget_id": budget_id
                 }
         except BudgetNotFoundException as e:

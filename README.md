@@ -103,7 +103,14 @@ Get information for a specific account.
 - `account_id`: The account ID
 
 ### `get_transactions`
-Get transactions for a specific budget, optionally filtered by account, payee, or category.
+Get transactions for a specific budget with smart compound filtering that automatically chooses the most efficient API endpoint to minimize data transfer.
+
+**Smart Filtering Strategy:**
+1. **Account + any other filters** → Uses account endpoint, filters rest in-memory
+2. **Category + Payee** → Uses category endpoint, filters payee in-memory  
+3. **Category only** → Uses category endpoint
+4. **Payee only** → Uses payee endpoint
+5. **No filters** → Uses general transactions endpoint
 
 **Parameters:**
 - `budget_id`: The budget ID (use 'last-used' for most recent)
@@ -112,6 +119,18 @@ Get transactions for a specific budget, optionally filtered by account, payee, o
 - `category_id`: Optional category ID to filter transactions for a specific category
 - `since_date`: Optional date filter (format: YYYY-MM-DD)
 - `transaction_type`: Optional transaction type filter ('uncategorized' or 'unapproved')
+
+**Compound Filtering Examples:**
+```python
+# Account + Category: Uses account endpoint, filters by category in-memory
+get_transactions(account_id="checking-123", category_id="groceries-456")
+
+# Category + Payee: Uses category endpoint, filters by payee in-memory  
+get_transactions(category_id="groceries-456", payee_id="walmart-789")
+
+# Account + Category + Payee: Uses account endpoint, filters both in-memory
+get_transactions(account_id="checking-123", category_id="groceries-456", payee_id="walmart-789")
+```
 
 ### `get_categories`
 Get all categories for a specific budget.
