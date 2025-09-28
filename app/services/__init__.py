@@ -230,6 +230,7 @@ class YNABService:
         budget_id: str, 
         payee_id: str,
         since_date: Optional[str] = None,
+        transaction_type: Optional[str] = None,
         last_knowledge_of_server: Optional[int] = None
     ) -> List[TransactionDetail]:
         """Get all transactions for a specific payee in a budget
@@ -238,6 +239,7 @@ class YNABService:
             budget_id: The budget ID
             payee_id: The payee ID
             since_date: Optional date filter (YYYY-MM-DD format)
+            transaction_type: Optional transaction type filter ('uncategorized' or 'unapproved')
             last_knowledge_of_server: Optional server knowledge parameter
             
         Returns:
@@ -249,6 +251,8 @@ class YNABService:
         params = {}
         if since_date:
             params["since_date"] = since_date
+        if transaction_type:
+            params["type"] = transaction_type
         if last_knowledge_of_server:
             params["last_knowledge_of_server"] = last_knowledge_of_server
         

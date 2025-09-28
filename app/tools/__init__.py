@@ -155,7 +155,8 @@ def register_tools(mcp: FastMCP) -> None:
                 transactions = await service.get_payee_transactions(
                     budget_id, 
                     payee_id,
-                    since_date=since_date
+                    since_date=since_date,
+                    transaction_type=transaction_type
                 )
                 return {
                     "transactions": [transaction.model_dump() for transaction in transactions],

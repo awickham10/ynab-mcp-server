@@ -103,13 +103,14 @@ Get information for a specific account.
 - `account_id`: The account ID
 
 ### `get_transactions`
-Get transactions for a specific budget, optionally filtered by account.
+Get transactions for a specific budget, optionally filtered by account or payee.
 
 **Parameters:**
 - `budget_id`: The budget ID (use 'last-used' for most recent)
 - `account_id`: Optional account ID to filter transactions for a specific account
+- `payee_id`: Optional payee ID to filter transactions for a specific payee
 - `since_date`: Optional date filter (format: YYYY-MM-DD)
-- `transaction_type`: Optional filter ('uncategorized' or 'unapproved')
+- `transaction_type`: Optional transaction type filter ('uncategorized' or 'unapproved')
 
 ### `get_categories`
 Get all categories for a specific budget.
