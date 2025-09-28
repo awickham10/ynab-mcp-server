@@ -13,7 +13,7 @@ from ..models import (
 )
 from ..exceptions import (
     YNABAPIException, AuthenticationException, RateLimitException,
-    BudgetNotFoundException, AccountNotFoundException, InvalidDateException
+    BudgetNotFoundException, AccountNotFoundException, PayeeNotFoundException, InvalidDateException
 )
 
 
@@ -224,6 +224,50 @@ class YNABService:
         
         payees_data = response["data"]["payees"]
         return [Payee(**payee) for payee in payees_data]
+    
+    async def get_payee_transactions(
+        self, 
+        budget_id: str, 
+        payee_id: str,
+        since_date: Optional[str] = None,
+        last_knowledge_of_server: Optional[int] = None
+    ) -> List[TransactionDetail]:
+        """Get all transactions for a specific payee in a budget
+        
+        Args:
+            budget_id: The budget ID
+            payee_id: The payee ID
+            since_date: Optional date filter (YYYY-MM-DD format)
+            last_knowledge_of_server: Optional server knowledge parameter
+            
+        Returns:
+            List of transaction details for the specified payee
+        """
+        if since_date:
+            self._validate_date_format(since_date)
+        
+        params = {}
+        if since_date:
+            params["since_date"] = since_date
+        if last_knowledge_of_server:
+            params["last_knowledge_of_server"] = last_knowledge_of_server
+        
+        endpoint = f"/budgets/{budget_id}/payees/{payee_id}/transactions"
+        
+        try:
+            response = await self._make_request("GET", endpoint, params)
+        except YNABAPIException as e:
+            if e.status_code == 404:
+                # Check if it's budget not found or payee not found
+                # YNAB API will return different error messages for budget vs payee not found
+                if "budget" in str(e).lower():
+                    raise BudgetNotFoundException(budget_id)
+                else:
+                    raise PayeeNotFoundException(payee_id)
+            raise
+        
+        transactions_data = response["data"]["transactions"]
+        return [TransactionDetail(**transaction) for transaction in transactions_data]
     
     async def update_transaction(
         self, 

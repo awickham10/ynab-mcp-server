@@ -7,7 +7,7 @@ from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_access_token
 
 from ..services import YNABService
-from ..exceptions import YNABAPIException, BudgetNotFoundException, AccountNotFoundException
+from ..exceptions import YNABAPIException, BudgetNotFoundException, AccountNotFoundException, PayeeNotFoundException
 
 
 def register_tools(mcp: FastMCP) -> None:
@@ -125,6 +125,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def get_transactions(
         budget_id: str = "last-used", 
         account_id: Optional[str] = None,
+        payee_id: Optional[str] = None,
         since_date: Optional[str] = None,
         transaction_type: Optional[str] = None
     ) -> dict:
@@ -133,6 +134,7 @@ def register_tools(mcp: FastMCP) -> None:
         Args:
             budget_id: The ID of the budget (use 'last-used' for the most recent budget)
             account_id: Optional account ID to filter transactions for a specific account
+            payee_id: Optional payee ID to filter transactions for a specific payee
             since_date: Optional date to filter transactions (format: YYYY-MM-DD)
             transaction_type: Optional transaction type filter ('uncategorized' or 'unapproved')
         
@@ -147,21 +149,39 @@ def register_tools(mcp: FastMCP) -> None:
             
             access_token = token.token
             service = YNABService(access_token)
-            transactions = await service.get_transactions(
-                budget_id, 
-                account_id=account_id,
-                since_date=since_date,
-                transaction_type=transaction_type
-            )
-            return {
-                "transactions": [transaction.model_dump() for transaction in transactions],
-                "count": len(transactions),
-                "account_id": account_id  # Include account_id in response for clarity
-            }
+            
+            # If payee_id is provided, use the payee transactions endpoint
+            if payee_id:
+                transactions = await service.get_payee_transactions(
+                    budget_id, 
+                    payee_id,
+                    since_date=since_date
+                )
+                return {
+                    "transactions": [transaction.model_dump() for transaction in transactions],
+                    "count": len(transactions),
+                    "payee_id": payee_id,
+                    "budget_id": budget_id
+                }
+            else:
+                # Use the regular transactions endpoint
+                transactions = await service.get_transactions(
+                    budget_id, 
+                    account_id=account_id,
+                    since_date=since_date,
+                    transaction_type=transaction_type
+                )
+                return {
+                    "transactions": [transaction.model_dump() for transaction in transactions],
+                    "count": len(transactions),
+                    "account_id": account_id  # Include account_id in response for clarity
+                }
         except BudgetNotFoundException as e:
             return {"error": str(e), "budget_id": e.budget_id}
         except AccountNotFoundException as e:
             return {"error": str(e), "account_id": e.account_id}
+        except PayeeNotFoundException as e:
+            return {"error": str(e), "payee_id": e.payee_id}
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
@@ -215,6 +235,48 @@ def register_tools(mcp: FastMCP) -> None:
             return {
                 "payees": [payee.model_dump() for payee in payees],
                 "count": len(payees)
+            }
+        except BudgetNotFoundException as e:
+            return {"error": str(e), "budget_id": e.budget_id}
+        except YNABAPIException as e:
+            return {"error": str(e), "status_code": e.status_code}
+    
+    @mcp.tool
+    async def find_payee_by_name(
+        payee_name: str,
+        budget_id: str = "last-used"
+    ) -> dict:
+        """Find payees by name (case-insensitive partial matching)
+        
+        Args:
+            payee_name: The name or partial name of the payee to search for
+            budget_id: The ID of the budget (use 'last-used' for the most recent budget)
+        
+        Returns:
+            Dictionary containing matching payees
+        """
+        try:
+            # Get the authenticated user's access token
+            token = get_access_token()
+            if not token:
+                return {"error": "No valid authentication token found"}
+            
+            access_token = token.token
+            service = YNABService(access_token)
+            all_payees = await service.get_payees(budget_id)
+            
+            # Search for payees with names containing the search term (case-insensitive)
+            search_term = payee_name.lower().strip()
+            matching_payees = [
+                payee for payee in all_payees 
+                if payee.name and search_term in payee.name.lower()
+            ]
+            
+            return {
+                "payees": [payee.model_dump() for payee in matching_payees],
+                "count": len(matching_payees),
+                "search_term": payee_name,
+                "budget_id": budget_id
             }
         except BudgetNotFoundException as e:
             return {"error": str(e), "budget_id": e.budget_id}

@@ -46,6 +46,14 @@ class AccountNotFoundException(YNABAPIException):
         self.account_id = account_id
 
 
+class PayeeNotFoundException(YNABAPIException):
+    """Exception raised when a payee is not found"""
+    
+    def __init__(self, payee_id: str):
+        super().__init__(f"Payee with ID '{payee_id}' not found", status_code=404)
+        self.payee_id = payee_id
+
+
 class InvalidDateException(YNABMCPException):
     """Exception raised for invalid date formats"""
     
