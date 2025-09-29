@@ -1,5 +1,5 @@
 """
-Configuration module
+Configuration management for YNAB MCP Server
 """
 
 from pydantic import AnyHttpUrl, SecretStr
@@ -34,5 +34,3 @@ class YNABConfig(BaseSettings):
 
 # Global config instance
 config = YNABConfig()
-
-__all__ = ["config", "YNABConfig"]
