@@ -119,7 +119,7 @@ Get transactions for a specific budget with smart compound filtering that automa
 - `category_id`: Optional category ID to filter transactions for a specific category
 - `since_date`: Optional date filter (format: YYYY-MM-DD)
 - `transaction_type`: Optional transaction type filter ('uncategorized' or 'unapproved')
-- `empty_memo`: Optional boolean to filter transactions with empty/blank memo (`True`) or non-empty memo (`False`)
+- `empty_memo`: **Data cleanup tool** - Use `True` to find transactions missing memos that need descriptions added, `False` to find transactions that already have memo text. Perfect for identifying transactions needing additional details.
 
 **Compound Filtering Examples:**
 ```python
@@ -132,13 +132,13 @@ get_transactions(category_id="groceries-456", payee_id="walmart-789")
 # Account + Category + Payee: Uses account endpoint, filters both in-memory
 get_transactions(account_id="checking-123", category_id="groceries-456", payee_id="walmart-789")
 
-# Find transactions with empty memos (need additional details)
+# DATA CLEANUP: Find transactions with empty memos that need descriptions
 get_transactions(empty_memo=True)
 
-# Find transactions with memos from a specific payee
+# Find transactions with memos from a specific payee (quality check)
 get_transactions(payee_id="amazon-123", empty_memo=False)
 
-# Find empty memo transactions in a specific category (data cleanup)
+# Find empty memo transactions in a specific category (data cleanup by category)
 get_transactions(category_id="dining-456", empty_memo=True)
 ```
 

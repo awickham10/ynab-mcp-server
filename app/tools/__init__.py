@@ -21,7 +21,16 @@ def register_tools(mcp: FastMCP) -> None:
     # Keep track of registered tools for logging
     registered_tools = []
     
-    @mcp.tool
+    @mcp.tool(
+        name="get_budgets",
+        tags={"budget", "overview", "readonly"},
+        annotations={
+            "title": "Get All Budgets", 
+            "readOnlyHint": True,
+            "openWorldHint": True
+        },
+        meta={"version": "1.0", "category": "budget-info"}
+    )
     async def get_budgets(include_accounts: bool = False) -> dict:
         """Get all budgets for the authenticated user
         
@@ -47,7 +56,16 @@ def register_tools(mcp: FastMCP) -> None:
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
-    @mcp.tool
+    @mcp.tool(
+        name="get_budget", 
+        tags={"budget", "details", "readonly"},
+        annotations={
+            "title": "Get Budget Details",
+            "readOnlyHint": True, 
+            "openWorldHint": True
+        },
+        meta={"version": "1.0", "category": "budget-info"}
+    )
     async def get_budget(budget_id: str = "last-used") -> dict:
         """Get detailed information for a specific budget
         
@@ -72,15 +90,28 @@ def register_tools(mcp: FastMCP) -> None:
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
-    @mcp.tool
+    @mcp.tool(
+        name="get_accounts",
+        tags={"accounts", "balances", "readonly"},
+        annotations={
+            "title": "Get All Accounts",
+            "readOnlyHint": True,
+            "openWorldHint": True  
+        },
+        meta={"version": "1.0", "category": "account-info"}
+    )
     async def get_accounts(budget_id: str = "last-used") -> dict:
-        """Get all accounts for a specific budget
+        """Get all accounts for a specific budget including balances and account types
+        
+        Returns checking, savings, credit cards, and other account information.
+        Use this to see account balances, account names, or when you need account IDs
+        for filtering transactions by account.
         
         Args:
             budget_id: The ID of the budget (use 'last-used' for the most recent budget)
         
         Returns:
-            Dictionary containing account information
+            Dictionary containing all accounts with names, balances, and account details
         """
         try:
             # Get the authenticated user's access token
@@ -100,7 +131,16 @@ def register_tools(mcp: FastMCP) -> None:
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
-    @mcp.tool
+    @mcp.tool(
+        name="get_account",
+        tags={"accounts", "details", "readonly"}, 
+        annotations={
+            "title": "Get Account Details",
+            "readOnlyHint": True,
+            "openWorldHint": True
+        },
+        meta={"version": "1.0", "category": "account-info"}
+    )
     async def get_account(budget_id: str, account_id: str) -> dict:
         """Get information for a specific account
         
@@ -126,7 +166,16 @@ def register_tools(mcp: FastMCP) -> None:
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
-    @mcp.tool
+    @mcp.tool(
+        name="get_transactions",
+        tags={"transactions", "filtering", "readonly", "data-cleanup"},
+        annotations={
+            "title": "Get Transactions with Smart Filtering",
+            "readOnlyHint": True,
+            "openWorldHint": True
+        },
+        meta={"version": "1.0", "category": "transaction-data", "supports_compound_filtering": True}
+    )
     async def get_transactions(
         budget_id: str = "last-used", 
         account_id: Optional[str] = None,
@@ -155,7 +204,10 @@ def register_tools(mcp: FastMCP) -> None:
             category_id: Optional category ID to filter transactions for a specific category
             since_date: Optional date to filter transactions (format: YYYY-MM-DD)
             transaction_type: Optional transaction type filter ('uncategorized' or 'unapproved')
-            empty_memo: Optional boolean to filter transactions with empty/blank memo (True) or non-empty memo (False)
+            empty_memo: Optional boolean to find transactions missing memos for data cleanup. 
+                       Use True to find transactions with blank/empty memos that need descriptions added.
+                       Use False to find transactions that already have memo text.
+                       Useful for identifying transactions needing additional details or categorization.
         
         Returns:
             Dictionary containing transaction information with applied filters
@@ -331,15 +383,28 @@ def register_tools(mcp: FastMCP) -> None:
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
-    @mcp.tool
+    @mcp.tool(
+        name="get_categories",
+        tags={"categories", "budgeting", "readonly"},
+        annotations={
+            "title": "Get Budget Categories",
+            "readOnlyHint": True,
+            "openWorldHint": True
+        },
+        meta={"version": "1.0", "category": "category-info"}
+    )
     async def get_categories(budget_id: str = "last-used") -> dict:
-        """Get all categories for a specific budget
+        """Get all categories and category groups for a specific budget
+        
+        Returns both category groups (like "Food", "Transportation") and individual categories 
+        (like "Groceries", "Gas"). Use this when you need category IDs for filtering transactions
+        or when users ask about their budget categories and spending limits.
         
         Args:
             budget_id: The ID of the budget (use 'last-used' for the most recent budget)
         
         Returns:
-            Dictionary containing category information
+            Dictionary containing all categories organized by category groups with budgeted amounts
         """
         try:
             # Get the authenticated user's access token
@@ -359,15 +424,28 @@ def register_tools(mcp: FastMCP) -> None:
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
-    @mcp.tool
+    @mcp.tool(
+        name="get_payees", 
+        tags={"payees", "merchants", "readonly"},
+        annotations={
+            "title": "Get All Payees",
+            "readOnlyHint": True,
+            "openWorldHint": True
+        },
+        meta={"version": "1.0", "category": "payee-info"}
+    )
     async def get_payees(budget_id: str = "last-used") -> dict:
-        """Get all payees for a specific budget
+        """Get all payees (merchants, people, places) for a specific budget
+        
+        Returns all entities that have been paid money to or received money from.
+        Use this when you need payee IDs for filtering transactions, or when users
+        want to see all the places they spend money (restaurants, stores, etc.).
         
         Args:
             budget_id: The ID of the budget (use 'last-used' for the most recent budget)
         
         Returns:
-            Dictionary containing payee information
+            Dictionary containing all payees with their names and IDs
         """
         try:
             # Get the authenticated user's access token
@@ -387,19 +465,32 @@ def register_tools(mcp: FastMCP) -> None:
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
-    @mcp.tool
+    @mcp.tool(
+        name="find_payee_by_name",
+        tags={"payees", "search", "readonly"},
+        annotations={
+            "title": "Find Payee by Name",
+            "readOnlyHint": True,
+            "openWorldHint": True
+        },
+        meta={"version": "1.0", "category": "payee-search", "search_type": "partial_match"}
+    )
     async def find_payee_by_name(
         payee_name: str,
         budget_id: str = "last-used"
     ) -> dict:
-        """Find payees by name (case-insensitive partial matching)
+        """Find payees by name using case-insensitive partial matching
+        
+        Use this when you need to search for payees without knowing their exact name or ID.
+        Particularly useful for finding payees when users provide partial names, common names,
+        or slight variations of business names (e.g., "Starbucks", "starbucks", "Star").
         
         Args:
-            payee_name: The name or partial name of the payee to search for
+            payee_name: The name or partial name of the payee to search for (case-insensitive)
             budget_id: The ID of the budget (use 'last-used' for the most recent budget)
         
         Returns:
-            Dictionary containing matching payees
+            Dictionary containing all payees whose names contain the search term
         """
         try:
             # Get the authenticated user's access token
@@ -429,16 +520,29 @@ def register_tools(mcp: FastMCP) -> None:
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
-    @mcp.tool 
+    @mcp.tool(
+        name="analyze_spending",
+        tags={"analytics", "spending", "insights", "readonly"},
+        annotations={
+            "title": "Analyze Spending Patterns",
+            "readOnlyHint": True,
+            "openWorldHint": True
+        },
+        meta={"version": "1.0", "category": "analytics", "analysis_type": "spending_trends"}
+    )
     async def analyze_spending(budget_id: str = "last-used", months: int = 3) -> dict:
-        """Analyze spending patterns for a budget
+        """Analyze spending patterns and trends for a budget over a specified time period
+        
+        Provides insights into spending habits including total spending, top categories,
+        transaction counts, and daily averages. Use this when users want to understand
+        their spending behavior, identify areas of high spending, or get budget insights.
         
         Args:
             budget_id: The ID of the budget (use 'last-used' for the most recent budget)
-            months: Number of months to analyze (default: 3)
+            months: Number of months to analyze going back from today (default: 3, max recommended: 12)
         
         Returns:
-            Dictionary containing spending analysis
+            Dictionary containing comprehensive spending analysis with formatted amounts and trends
         """
         try:
             # Get the authenticated user's access token
@@ -493,7 +597,18 @@ def register_tools(mcp: FastMCP) -> None:
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
     
-    @mcp.tool
+    @mcp.tool(
+        name="update_transaction",
+        tags={"transactions", "editing", "modify"},
+        annotations={
+            "title": "Update Transaction Details",
+            "readOnlyHint": False,
+            "destructiveHint": False,  # Non-destructive modification
+            "idempotentHint": True,    # Same update calls produce same result
+            "openWorldHint": True
+        },
+        meta={"version": "1.0", "category": "transaction-editing", "modifies_data": True}
+    )
     async def update_transaction(
         budget_id: str,
         transaction_id: str,
@@ -507,19 +622,23 @@ def register_tools(mcp: FastMCP) -> None:
         flag_color: Optional[str] = None,
         date: Optional[str] = None
     ) -> dict:
-        """Update an existing transaction
+        """Update an existing transaction with new details
+        
+        Use this to modify transaction information like adding memos, changing amounts,
+        updating categories, or marking transactions as cleared. All parameters are optional
+        - only provide the fields you want to update.
         
         Args:
             budget_id: The ID of the budget
             transaction_id: The ID of the transaction to update
-            memo: Transaction memo (max 500 characters)
-            amount: Amount in standard currency format (e.g., 50.00 for $50.00)
-            payee_id: Payee ID
-            payee_name: Payee name (alternative to payee_id)
-            category_id: Category ID
-            cleared: Cleared status ('cleared', 'uncleared', 'reconciled')
-            approved: Whether transaction is approved
-            flag_color: Flag color ('red', 'orange', 'yellow', 'green', 'blue', 'purple')
+            memo: Transaction memo/description (max 500 characters). Use to add context or notes.
+            amount: Amount in standard currency format (e.g., 50.00 for $50.00, -25.99 for expenses)
+            payee_id: Payee ID (use get_payees or find_payee_by_name to find valid IDs)
+            payee_name: Payee name (alternative to payee_id, will create payee if doesn't exist)
+            category_id: Category ID (use get_categories to find valid IDs)
+            cleared: Cleared status - 'cleared' (reconciled with bank), 'uncleared' (pending), 'reconciled' (final)
+            approved: Whether transaction is approved (False for transactions needing review)
+            flag_color: Visual flag color for organization ('red', 'orange', 'yellow', 'green', 'blue', 'purple')
             date: Transaction date in YYYY-MM-DD format
         
         Returns:
