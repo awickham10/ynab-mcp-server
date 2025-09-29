@@ -179,7 +179,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def get_transactions(
         budget_id: str = "last-used", 
         account_id: Optional[str] = None,
-        payee_id: Optional[str] = None,
+        payee_id: Optional[List[str] | str] = None,
         category_id: Optional[str] = None,
         since_date: Optional[str] = None,
         transaction_type: Optional[str] = None,
@@ -200,7 +200,7 @@ def register_tools(mcp: FastMCP) -> None:
         Args:
             budget_id: The ID of the budget (use 'last-used' for the most recent budget)
             account_id: Optional account ID to filter transactions for a specific account
-            payee_id: Optional payee ID to filter transactions for a specific payee
+            payee_id: Optional payee ID or list of payee IDs to filter transactions for specific payees
             category_id: Optional category ID to filter transactions for a specific category
             since_date: Optional date to filter transactions (format: YYYY-MM-DD)
             transaction_type: Optional transaction type filter ('uncategorized' or 'unapproved')
@@ -237,7 +237,10 @@ def register_tools(mcp: FastMCP) -> None:
                 # Apply additional filters in-memory
                 filtered_transactions = transactions
                 if payee_id:
-                    filtered_transactions = [t for t in filtered_transactions if t.payee_id == payee_id]
+                    if isinstance(payee_id, list):
+                        filtered_transactions = [t for t in filtered_transactions if t.payee_id in payee_id]
+                    else:
+                        filtered_transactions = [t for t in filtered_transactions if t.payee_id == payee_id]
                 if category_id:
                     filtered_transactions = [t for t in filtered_transactions if t.category_id == category_id]
                 if empty_memo is not None:
@@ -272,7 +275,10 @@ def register_tools(mcp: FastMCP) -> None:
                 )
                 
                 # Filter by payee and memo in-memory
-                filtered_transactions = [t for t in transactions if t.payee_id == payee_id]
+                if isinstance(payee_id, list):
+                    filtered_transactions = [t for t in transactions if t.payee_id in payee_id]
+                else:
+                    filtered_transactions = [t for t in transactions if t.payee_id == payee_id]
                 if empty_memo is not None:
                     if empty_memo:
                         filtered_transactions = [t for t in filtered_transactions if _is_memo_empty(t.memo)]
@@ -321,16 +327,25 @@ def register_tools(mcp: FastMCP) -> None:
                 return response
                 
             elif payee_id:
-                # Only payee specified, use payee endpoint
-                transactions = await service.get_payee_transactions(
-                    budget_id, 
-                    payee_id,
-                    since_date=since_date,
-                    transaction_type=transaction_type
-                )
+                # Payee specified (single or multiple)
+                if isinstance(payee_id, list):
+                    # Multiple payees - fetch all transactions and filter in memory for efficiency
+                    transactions = await service.get_transactions(
+                        budget_id, 
+                        since_date=since_date,
+                        transaction_type=transaction_type
+                    )
+                    filtered_transactions = [t for t in transactions if t.payee_id in payee_id]
+                else:
+                    # Single payee - use optimized payee endpoint
+                    filtered_transactions = await service.get_payee_transactions(
+                        budget_id, 
+                        payee_id,
+                        since_date=since_date,
+                        transaction_type=transaction_type
+                    )
                 
                 # Apply memo filter if specified
-                filtered_transactions = transactions
                 if empty_memo is not None:
                     if empty_memo:
                         filtered_transactions = [t for t in filtered_transactions if _is_memo_empty(t.memo)]
