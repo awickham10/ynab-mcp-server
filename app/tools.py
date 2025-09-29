@@ -221,6 +221,16 @@ def register_tools(mcp: FastMCP) -> None:
             access_token = token.token
             service = YNABService(access_token)
             
+            # Handle JSON string payee_id parameter
+            # If payee_id is a string that looks like a JSON array, parse it
+            if payee_id and isinstance(payee_id, str) and payee_id.strip().startswith('['):
+                try:
+                    import json
+                    payee_id = json.loads(payee_id)
+                except (json.JSONDecodeError, ValueError):
+                    # If parsing fails, treat as a single payee ID string
+                    pass
+            
             # Smart endpoint selection to minimize data transfer
             # Priority: account > category > payee > all transactions
             
