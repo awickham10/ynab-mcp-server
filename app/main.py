@@ -71,54 +71,26 @@ def _log_registered_resources(mcp_server: FastMCP) -> None:
     
     logger.info("_log_registered_resources called!")  # Debug log
     
-    # Get registered tools - try different possible attribute names
+    # Get registered tools - access managers directly to avoid async calls
     try:
-        # First, let's see what attributes the server has
-        server_attrs = [attr for attr in dir(mcp_server) if not attr.startswith('__')]
-        logger.info(f"FastMCP server attributes: {server_attrs}")
-        
-        # Try different ways to access tools and prompts
         tools = {}
         prompts = {}
         
-        # Try to get tools using FastMCP methods
-        if hasattr(mcp_server, 'get_tools'):
-            try:
-                tools_list = mcp_server.get_tools()
-                tools = {tool.name: tool for tool in tools_list}
-                logger.info(f"Found {len(tools)} tools using get_tools() method")
-            except Exception as e:
-                logger.debug(f"Error calling get_tools(): {e}")
-        
-        # Try to get prompts using FastMCP methods  
-        if hasattr(mcp_server, 'get_prompts'):
-            try:
-                prompts_list = mcp_server.get_prompts()
-                prompts = {prompt.name: prompt for prompt in prompts_list}
-                logger.info(f"Found {len(prompts)} prompts using get_prompts() method")
-            except Exception as e:
-                logger.debug(f"Error calling get_prompts(): {e}")
-        
-        # If the above methods don't work, try accessing the managers directly
-        if not tools and hasattr(mcp_server, '_tool_manager'):
+        # Access tool manager directly
+        if hasattr(mcp_server, '_tool_manager'):
             try:
                 tool_manager = mcp_server._tool_manager
-                if hasattr(tool_manager, 'tools'):
-                    tools = tool_manager.tools
-                    logger.info(f"Found {len(tools)} tools from _tool_manager.tools")
-                elif hasattr(tool_manager, '_tools'):
+                if hasattr(tool_manager, '_tools'):
                     tools = tool_manager._tools
                     logger.info(f"Found {len(tools)} tools from _tool_manager._tools")
             except Exception as e:
                 logger.debug(f"Error accessing _tool_manager: {e}")
-        
-        if not prompts and hasattr(mcp_server, '_prompt_manager'):
+
+        # Access prompt manager directly  
+        if hasattr(mcp_server, '_prompt_manager'):
             try:
                 prompt_manager = mcp_server._prompt_manager
-                if hasattr(prompt_manager, 'prompts'):
-                    prompts = prompt_manager.prompts
-                    logger.info(f"Found {len(prompts)} prompts from _prompt_manager.prompts")
-                elif hasattr(prompt_manager, '_prompts'):
+                if hasattr(prompt_manager, '_prompts'):
                     prompts = prompt_manager._prompts
                     logger.info(f"Found {len(prompts)} prompts from _prompt_manager._prompts")
             except Exception as e:
@@ -130,15 +102,17 @@ def _log_registered_resources(mcp_server: FastMCP) -> None:
         
         # Log tools
         if tools:
-            logger.info(f"� REGISTERED TOOLS ({len(tools)}):")
-            for tool_name, tool_func in tools.items():
-                # Try to get the docstring for description
-                doc = getattr(tool_func, '__doc__', 'No description available')
-                if doc:
-                    # Get just the first line of the docstring
-                    description = doc.strip().split('\n')[0]
-                else:
-                    description = "No description available"
+            logger.info(f"🔧 REGISTERED TOOLS ({len(tools)}):")
+            for tool_name, tool_obj in tools.items():
+                # Get description from the tool object
+                description = "No description available"
+                if hasattr(tool_obj, 'description') and tool_obj.description:
+                    # Get just the first line of the description
+                    description = tool_obj.description.strip().split('\n')[0]
+                elif hasattr(tool_obj, 'fn') and hasattr(tool_obj.fn, '__doc__') and tool_obj.fn.__doc__:
+                    # Fallback to function docstring
+                    description = tool_obj.fn.__doc__.strip().split('\n')[0]
+                    
                 logger.info(f"  • {tool_name}: {description}")
         else:
             logger.warning("  ⚠️  No tools found")
