@@ -329,13 +329,16 @@ def register_tools(mcp: FastMCP) -> None:
             elif payee_id:
                 # Payee specified (single or multiple)
                 if isinstance(payee_id, list):
-                    # Multiple payees - fetch all transactions and filter in memory for efficiency
-                    transactions = await service.get_transactions(
-                        budget_id, 
-                        since_date=since_date,
-                        transaction_type=transaction_type
-                    )
-                    filtered_transactions = [t for t in transactions if t.payee_id in payee_id]
+                    # Multiple payees - call get_payee_transactions for each payee
+                    filtered_transactions = []
+                    for single_payee_id in payee_id:
+                        payee_transactions = await service.get_payee_transactions(
+                            budget_id, 
+                            single_payee_id,
+                            since_date=since_date,
+                            transaction_type=transaction_type
+                        )
+                        filtered_transactions.extend(payee_transactions)
                 else:
                     # Single payee - use optimized payee endpoint
                     filtered_transactions = await service.get_payee_transactions(
