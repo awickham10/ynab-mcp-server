@@ -168,9 +168,9 @@ def register_tools(mcp: FastMCP) -> None:
     
     @mcp.tool(
         name="get_transactions",
-        tags={"transactions", "filtering", "readonly", "data-cleanup"},
+        tags={"transactions", "readonly", "data-cleanup"},
         annotations={
-            "title": "Get Transactions with Smart Filtering",
+            "title": "Get Transactions",
             "readOnlyHint": True,
             "openWorldHint": True
         },
