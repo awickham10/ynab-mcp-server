@@ -3,7 +3,7 @@ MCP Tools for YNAB integration
 """
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_access_token
 
@@ -285,7 +285,9 @@ def register_tools(mcp: FastMCP) -> None:
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
                 if widget:
-                    response["widget"] = _build_transactions_widget_payload(tx_models)
+                    structured_content, meta = _build_transactions_widget_payload(tx_models)
+                    response["structuredContent"] = structured_content
+                    response.setdefault("_meta", {}).update(meta)
                     
                 return response
                 
@@ -322,7 +324,9 @@ def register_tools(mcp: FastMCP) -> None:
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
                 if widget:
-                    response["widget"] = _build_transactions_widget_payload(tx_models)
+                    structured_content, meta = _build_transactions_widget_payload(tx_models)
+                    response["structuredContent"] = structured_content
+                    response.setdefault("_meta", {}).update(meta)
                 
                 return response
                 
@@ -353,7 +357,9 @@ def register_tools(mcp: FastMCP) -> None:
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
                 if widget:
-                    response["widget"] = _build_transactions_widget_payload(tx_models)
+                    structured_content, meta = _build_transactions_widget_payload(tx_models)
+                    response["structuredContent"] = structured_content
+                    response.setdefault("_meta", {}).update(meta)
                 
                 return response
                 
@@ -396,7 +402,9 @@ def register_tools(mcp: FastMCP) -> None:
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
                 if widget:
-                    response["widget"] = _build_transactions_widget_payload(tx_models)
+                    structured_content, meta = _build_transactions_widget_payload(tx_models)
+                    response["structuredContent"] = structured_content
+                    response.setdefault("_meta", {}).update(meta)
                 
                 return response
             else:
@@ -424,7 +432,9 @@ def register_tools(mcp: FastMCP) -> None:
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
                 if widget:
-                    response["widget"] = _build_transactions_widget_payload(tx_models)
+                    structured_content, meta = _build_transactions_widget_payload(tx_models)
+                    response["structuredContent"] = structured_content
+                    response.setdefault("_meta", {}).update(meta)
                 
                 return response
         except BudgetNotFoundException as e:
@@ -438,8 +448,8 @@ def register_tools(mcp: FastMCP) -> None:
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
 
-    def _build_transactions_widget_payload(transactions: List[dict]) -> dict:
-        """Build a payload for the transactions widget using the Widget UI schema."""
+    def _build_transactions_widget_payload(transactions: List[dict]) -> Tuple[dict, dict]:
+        """Build structured content and metadata for the transactions widget."""
 
         limit = 6
         total_count = len(transactions)
@@ -510,19 +520,20 @@ def register_tools(mcp: FastMCP) -> None:
             "netColor": "danger" if net_total < 0 else "success" if net_total > 0 else "secondary",
         }
 
-        return {
-            "template_uri": "ui://widget/transactions-table.html",
-            "type": "widget",
-            "version": 2,
-            "meta": {
-                "design_spec": "Compact card summarizing recent YNAB transactions with totals and approval cues. Highlights net cash flow and flags items that still need review. Keeps visuals light to pair with chat.",
-                "complexity_budget": "Within budget: single summary row plus up to six list items.",
-            },
-            "data": {
-                "summary": summary,
-                "rows": rows,
+        structured_content = {
+            "summary": summary,
+            "rows": rows,
+        }
+
+        meta = {
+            "openai/outputTemplate": "ui://widget/transactions-table.html",
+            "widget": {
+                "design_spec": "Compact card summarizing recent YNAB transactions with totals and review states.",
+                "complexity_budget": "Within budget: summary metrics and up to six list items.",
             },
         }
+
+        return structured_content, meta
     
     @mcp.tool(
         name="get_transaction_detail",
