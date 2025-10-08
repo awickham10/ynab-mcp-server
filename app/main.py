@@ -13,6 +13,7 @@ from app.auth import YNABTokenVerifier
 from app.config import config
 from app.tools import register_tools
 from app.prompts import register_prompts
+from app.resources import register_resources
 
 logger = get_logger(__name__)
 
@@ -121,6 +122,7 @@ def create_mcp_server() -> FastMCP:
     logger.info("Registering YNAB MCP tools and prompts...")
     register_tools(mcp_server)
     register_prompts(mcp_server)
+    register_resources(mcp_server)
     
     # Log all registered tools and prompts
     logger.info("About to log registered resources...")

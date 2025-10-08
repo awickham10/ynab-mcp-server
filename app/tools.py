@@ -174,7 +174,17 @@ def register_tools(mcp: FastMCP) -> None:
             "readOnlyHint": True,
             "openWorldHint": True
         },
-        meta={"version": "1.0", "category": "transaction-data", "supports_compound_filtering": True}
+        meta={
+            "version": "1.1",
+            "category": "transaction-data",
+            "supports_compound_filtering": True,
+            # Widget / template metadata for OpenAI Apps SDK style rendering
+            "openai/outputTemplate": "ui://widget/transactions-table.html",
+            "openai/toolInvocation/invoking": "Building transactions table",
+            "openai/toolInvocation/invoked": "Transactions table ready",
+            "openai/widgetAccessible": True,
+            "openai/resultCanProduceWidget": True
+        }
     )
     async def get_transactions(
         budget_id: str = "last-used", 
@@ -183,7 +193,8 @@ def register_tools(mcp: FastMCP) -> None:
         category_id: Optional[str] = None,
         since_date: Optional[str] = None,
         transaction_type: Optional[str] = None,
-        empty_memo: Optional[bool] = None
+        empty_memo: Optional[bool] = None,
+        widget: bool = True
     ) -> dict:
         """Get transactions for a specific budget with smart compound filtering
         
@@ -259,8 +270,9 @@ def register_tools(mcp: FastMCP) -> None:
                     else:
                         filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
+                tx_models = [transaction.model_dump() for transaction in filtered_transactions]
                 response = {
-                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "transactions": tx_models,
                     "count": len(filtered_transactions),
                     "account_id": account_id,
                     "budget_id": budget_id
@@ -271,6 +283,8 @@ def register_tools(mcp: FastMCP) -> None:
                     response["category_id"] = category_id
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
+                if widget:
+                    response["widget"] = _build_transactions_widget_payload(tx_models)
                     
                 return response
                 
@@ -295,8 +309,9 @@ def register_tools(mcp: FastMCP) -> None:
                     else:
                         filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
+                tx_models = [transaction.model_dump() for transaction in filtered_transactions]
                 response = {
-                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "transactions": tx_models,
                     "count": len(filtered_transactions),
                     "category_id": category_id,
                     "payee_id": payee_id,
@@ -305,6 +320,8 @@ def register_tools(mcp: FastMCP) -> None:
                 }
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
+                if widget:
+                    response["widget"] = _build_transactions_widget_payload(tx_models)
                 
                 return response
                 
@@ -325,14 +342,17 @@ def register_tools(mcp: FastMCP) -> None:
                     else:
                         filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
+                tx_models = [transaction.model_dump() for transaction in filtered_transactions]
                 response = {
-                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "transactions": tx_models,
                     "count": len(filtered_transactions),
                     "category_id": category_id,
                     "budget_id": budget_id
                 }
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
+                if widget:
+                    response["widget"] = _build_transactions_widget_payload(tx_models)
                 
                 return response
                 
@@ -365,14 +385,17 @@ def register_tools(mcp: FastMCP) -> None:
                     else:
                         filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
+                tx_models = [transaction.model_dump() for transaction in filtered_transactions]
                 response = {
-                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "transactions": tx_models,
                     "count": len(filtered_transactions),
                     "payee_id": payee_id,
                     "budget_id": budget_id
                 }
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
+                if widget:
+                    response["widget"] = _build_transactions_widget_payload(tx_models)
                 
                 return response
             else:
@@ -391,13 +414,16 @@ def register_tools(mcp: FastMCP) -> None:
                     else:
                         filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
+                tx_models = [transaction.model_dump() for transaction in filtered_transactions]
                 response = {
-                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "transactions": tx_models,
                     "count": len(filtered_transactions),
                     "budget_id": budget_id
                 }
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
+                if widget:
+                    response["widget"] = _build_transactions_widget_payload(tx_models)
                 
                 return response
         except BudgetNotFoundException as e:
@@ -410,7 +436,79 @@ def register_tools(mcp: FastMCP) -> None:
             return {"error": str(e), "category_id": e.category_id}
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
+
+    def _build_transactions_widget_payload(transactions: List[dict]) -> dict:
+        """Build a lightweight payload the frontend widget can render as a table.
+
+        The HTML/JS template (ui://widget/transactions-table.html) can read this
+        structure from the tool response. We keep the schema simple & explicit.
+        """
+        # Column definitions (key maps to transaction dict key or derived field)
+        columns = [
+            {"key": "date", "label": "Date"},
+            {"key": "account_name", "label": "Account"},
+            {"key": "payee_name", "label": "Payee"},
+            {"key": "category_name", "label": "Category"},
+            {"key": "memo", "label": "Memo"},
+            {"key": "amount_formatted", "label": "Amount"},
+            {"key": "cleared", "label": "Cleared"},
+            {"key": "approved", "label": "Approved"},
+        ]
+
+        def format_amount(milliunits: int | None) -> str:
+            if milliunits is None:
+                return ""
+            # YNAB amounts: negative = spending
+            major = milliunits / 1000.0
+            return f"{major:,.2f}" if major >= 0 else f"({abs(major):,.2f})"
+
+        rows = []
+        for t in transactions:
+            rows.append({
+                "date": t.get("date"),
+                "account_name": t.get("account_name"),
+                "payee_name": t.get("payee_name"),
+                "category_name": t.get("category_name"),
+                "memo": t.get("memo") or "",
+                "amount_formatted": format_amount(t.get("amount")),
+                "cleared": t.get("cleared"),
+                "approved": t.get("approved"),
+            })
+
+        return {
+            "template_uri": "ui://widget/transactions-table.html",
+            "type": "table",
+            "version": 1,
+            "columns": columns,
+            "rows": rows,
+            "row_count": len(rows)
+        }
     
+    @mcp.tool(
+        name="get_transaction_detail",
+        tags={"transactions", "readonly", "data-cleanup"},
+        annotations={
+            "title": "Get Transaction Detail",
+            "readOnlyHint": True,
+            "openWorldHint": True
+        },
+        meta={
+            "version": "1.0",
+            "category": "transaction-data",
+            "openai/outputTemplate": "ui://widget/transaction-detail.html",
+            "openai/toolInvocation/invoking": "Displaying the transaction detail",
+            "openai/toolInvocation/invoked": "Displayed the transaction detail"
+        }
+    )
+    async def get_transaction_detail(budget_id: str, transaction_id: str) -> dict:
+        """Get detailed information for a specific transaction
+        
+        Args:
+            budget_id: The ID of the budget
+            transaction_id: The ID of the transaction
+        """
+        pass
+
     @mcp.tool(
         name="get_categories",
         tags={"categories", "budgeting", "readonly"},
