@@ -18,42 +18,64 @@ def register_resources(mcp: FastMCP) -> None:
         mime_type="text/html+skybridge",
     )
     async def transactions_table_widget() -> str:
-        # Minimal vanilla JS table renderer; expects a tool response structure
-        # with a `widget` key containing columns & rows.
-        return (
-            "<div id=\"ynab-transactions-root\" style=\"font-family: system-ui, sans-serif; font-size:13px;\"></div>"  # container
-            "<style>"
-            "#ynab-transactions-root table{border-collapse:collapse;width:100%;}"
-            "#ynab-transactions-root th,#ynab-transactions-root td{border:1px solid #ddd;padding:4px 6px;text-align:left;}"
-            "#ynab-transactions-root th{background:#f5f7fa;font-weight:600;font-size:12px;}"
-            "#ynab-transactions-root tr:nth-child(even){background:#fafbfc;}"
-            "#ynab-transactions-root tr:hover{background:#eef5ff;}"
-            "#ynab-transactions-root .neg{color:#b20000;font-weight:600;}"
-            "#ynab-transactions-root .pos{color:#036703;}"
-            "</style>"
-            "<script type=\"module\">"
-            "(function(){"
-            "const container=document.getElementById('ynab-transactions-root');"
-            "if(!container){return;}"
-            "// The host should inject the tool call JSON alongside this template."
-            "// We scan for a script tag with type application/json+widget as a simple convention."
-            "const jsonScript=[...document.querySelectorAll('script')].find(s=>s.type==='application/json+widget');"
-            "if(!jsonScript){container.innerHTML='<em>No transaction data found.</em>';return;}"
-            "let payload;try{payload=JSON.parse(jsonScript.textContent);}catch(e){container.innerHTML='<em>Invalid widget data</em>';return;}"
-            "if(!payload?.columns||!payload?.rows){container.innerHTML='<em>No rows</em>';return;}"
-            "const tbl=document.createElement('table');"
-            "const thead=document.createElement('thead');const htr=document.createElement('tr');"
-            "for(const col of payload.columns){const th=document.createElement('th');th.textContent=col.label||col.key;htr.appendChild(th);}"
-            "thead.appendChild(htr);tbl.appendChild(thead);"
-            "const tbody=document.createElement('tbody');"
-            "for(const row of payload.rows){const tr=document.createElement('tr');"
-            "for(const col of payload.columns){let val=row[col.key];if(val==null) val='';"
-            "if(col.key==='amount_formatted'){const trimmed=val.trim();const isNeg=trimmed.startsWith('(')||trimmed.startsWith('-');tr.classList.add(isNeg?'neg':'pos');}"
-            "const td=document.createElement('td');td.textContent=val;tr.appendChild(td);}tbody.appendChild(tr);}"
-            "tbl.appendChild(tbody);container.innerHTML='';container.appendChild(tbl);"
-            "})();"
-            "</script>"
-        )
+        """Widget UI template for rendering the transactions summary card."""
+        return """
+<Card size="md">
+    <Col gap={3}>
+        <Row align="start">
+            <Col gap={0}>
+                <Title value={summary.title} size="sm" />
+                <Caption value={summary.subtitle} size="sm" color="secondary" />
+            </Col>
+            <Spacer />
+            <Badge label={`${summary.displayCount} of ${summary.rowCount}`} size="sm" variant="soft" />
+        </Row>
+        <Row gap={3}>
+            <Col gap={0}>
+                <Caption value="Outflow" size="sm" color="secondary" />
+                <Text value={summary.outflow} size="sm" weight="semibold" color="danger" />
+            </Col>
+            <Col gap={0}>
+                <Caption value="Inflow" size="sm" color="secondary" />
+                <Text value={summary.inflow} size="sm" weight="semibold" color="success" />
+            </Col>
+            <Col gap={0}>
+                <Caption value="Net" size="sm" color="secondary" />
+                <Text value={summary.net} size="sm" weight="semibold" color={summary.netColor} />
+            </Col>
+        </Row>
+        <Divider />
+        <Col gap={2}>
+            {rows.map((item) => (
+                <Row key={item.id} align="start" gap={3}>
+                    <Col gap={1}>
+                        <Badge label={item.date} size="sm" variant="soft" />
+                        {item.needsApproval && (
+                            <Badge label="Needs approval" size="sm" color="warning" variant="soft" />
+                        )}
+                    </Col>
+                    <Col flex="auto" gap={0}>
+                        <Text value={item.payee} size="sm" weight="semibold" maxLines={1} />
+                        <Caption value={item.category} size="sm" color="secondary" maxLines={1} />
+                        {item.memo && (
+                            <Caption value={item.memo} size="sm" color="tertiary" maxLines={1} />
+                        )}
+                    </Col>
+                    <Spacer />
+                    <Col align="end" gap={0}>
+                        <Text value={item.amount} size="sm" weight="semibold" color={item.amountColor} />
+                    </Col>
+                </Row>
+            ))}
+            {rows.length === 0 && (
+                <Row align="center" justify="center" padding={{ y: 4 }}>
+                    <Text value="No transactions to show yet." size="sm" color="secondary" />
+                </Row>
+            )}
+        </Col>
+    </Col>
+</Card>
+"""
 
     # Placeholder resource for future single transaction detail widget
     @mcp.resource(

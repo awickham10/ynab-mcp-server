@@ -2,6 +2,7 @@
 MCP Tools for YNAB integration
 """
 
+from datetime import datetime
 from typing import Optional, List
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_access_token
@@ -438,50 +439,89 @@ def register_tools(mcp: FastMCP) -> None:
             return {"error": str(e), "status_code": e.status_code}
 
     def _build_transactions_widget_payload(transactions: List[dict]) -> dict:
-        """Build a lightweight payload the frontend widget can render as a table.
+        """Build a payload for the transactions widget using the Widget UI schema."""
 
-        The HTML/JS template (ui://widget/transactions-table.html) can read this
-        structure from the tool response. We keep the schema simple & explicit.
-        """
-        # Column definitions (key maps to transaction dict key or derived field)
-        columns = [
-            {"key": "date", "label": "Date"},
-            {"key": "account_name", "label": "Account"},
-            {"key": "payee_name", "label": "Payee"},
-            {"key": "category_name", "label": "Category"},
-            {"key": "memo", "label": "Memo"},
-            {"key": "amount_formatted", "label": "Amount"},
-            {"key": "cleared", "label": "Cleared"},
-            {"key": "approved", "label": "Approved"},
-        ]
+        limit = 6
+        total_count = len(transactions)
 
         def format_amount(milliunits: int | None) -> str:
             if milliunits is None:
                 return ""
-            # YNAB amounts: negative = spending
             major = milliunits / 1000.0
-            return f"{major:,.2f}" if major >= 0 else f"({abs(major):,.2f})"
+            if major < 0:
+                return f"({abs(major):,.2f})"
+            if major == 0:
+                return "0.00"
+            return f"{major:,.2f}"
+
+        def format_date(value: Optional[str]) -> str:
+            if not value:
+                return "—"
+            try:
+                parsed = datetime.strptime(value, "%Y-%m-%d")
+                return parsed.strftime("%b %d").replace(" 0", " ")
+            except ValueError:
+                return value
+
+        def clean_memo(memo: Optional[str]) -> Optional[str]:
+            if memo is None:
+                return None
+            text = memo.strip()
+            if not text:
+                return None
+            return text if len(text) <= 40 else f"{text[:37]}…"
+
+        outflow_total = sum((t.get("amount") or 0) for t in transactions if (t.get("amount") or 0) < 0)
+        inflow_total = sum((t.get("amount") or 0) for t in transactions if (t.get("amount") or 0) > 0)
+        net_total = outflow_total + inflow_total
 
         rows = []
-        for t in transactions:
+        for idx, transaction in enumerate(transactions[:limit]):
+            amount = transaction.get("amount")
+            amount_color = "danger" if amount is not None and amount < 0 else "success" if amount and amount > 0 else "secondary"
             rows.append({
-                "date": t.get("date"),
-                "account_name": t.get("account_name"),
-                "payee_name": t.get("payee_name"),
-                "category_name": t.get("category_name"),
-                "memo": t.get("memo") or "",
-                "amount_formatted": format_amount(t.get("amount")),
-                "cleared": t.get("cleared"),
-                "approved": t.get("approved"),
+                "id": transaction.get("id") or f"row-{idx}",
+                "date": format_date(transaction.get("date")),
+                "payee": transaction.get("payee_name") or transaction.get("account_name") or "Unknown payee",
+                "category": transaction.get("category_name") or "Uncategorized",
+                "memo": clean_memo(transaction.get("memo")),
+                "amount": format_amount(amount),
+                "amountColor": amount_color,
+                "needsApproval": not bool(transaction.get("approved", True)),
             })
+
+        display_count = len(rows)
+        if total_count == 0:
+            subtitle = "No transactions found"
+        elif total_count > display_count:
+            subtitle = f"Showing {display_count} of {total_count} transactions"
+        else:
+            plural = "transaction" if display_count == 1 else "transactions"
+            subtitle = f"{display_count} {plural}"
+
+        summary = {
+            "title": "Recent transactions",
+            "subtitle": subtitle,
+            "rowCount": total_count,
+            "displayCount": display_count,
+            "outflow": format_amount(outflow_total if outflow_total else 0),
+            "inflow": format_amount(inflow_total if inflow_total else 0),
+            "net": format_amount(net_total),
+            "netColor": "danger" if net_total < 0 else "success" if net_total > 0 else "secondary",
+        }
 
         return {
             "template_uri": "ui://widget/transactions-table.html",
-            "type": "table",
-            "version": 1,
-            "columns": columns,
-            "rows": rows,
-            "row_count": len(rows)
+            "type": "widget",
+            "version": 2,
+            "meta": {
+                "design_spec": "Compact card summarizing recent YNAB transactions with totals and approval cues. Highlights net cash flow and flags items that still need review. Keeps visuals light to pair with chat.",
+                "complexity_budget": "Within budget: single summary row plus up to six list items.",
+            },
+            "data": {
+                "summary": summary,
+                "rows": rows,
+            },
         }
     
     @mcp.tool(
