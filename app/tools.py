@@ -459,10 +459,8 @@ def register_tools(mcp: FastMCP) -> None:
                 return ""
             major = milliunits / 1000.0
             if major < 0:
-                return f"({abs(major):,.2f})"
-            if major == 0:
-                return "0.00"
-            return f"{major:,.2f}"
+                return f"-${abs(major):,.2f}"
+            return f"${major:,.2f}"
 
         def format_date(value: Optional[str]) -> str:
             if not value:
@@ -485,20 +483,22 @@ def register_tools(mcp: FastMCP) -> None:
         inflow_total = sum((t.get("amount") or 0) for t in transactions if (t.get("amount") or 0) > 0)
         net_total = outflow_total + inflow_total
 
-        rows = []
+        rows: List[dict] = []
         for idx, transaction in enumerate(transactions[:limit]):
             amount = transaction.get("amount")
             amount_color = "danger" if amount is not None and amount < 0 else "success" if amount and amount > 0 else "secondary"
-            rows.append({
-                "id": transaction.get("id") or f"row-{idx}",
-                "date": format_date(transaction.get("date")),
-                "payee": transaction.get("payee_name") or transaction.get("account_name") or "Unknown payee",
-                "category": transaction.get("category_name") or "Uncategorized",
-                "memo": clean_memo(transaction.get("memo")),
-                "amount": format_amount(amount),
-                "amountColor": amount_color,
-                "needsApproval": not bool(transaction.get("approved", True)),
-            })
+            rows.append(
+                {
+                    "id": transaction.get("id") or f"row-{idx}",
+                    "payee": transaction.get("payee_name") or transaction.get("account_name") or "Unknown payee",
+                    "amount": format_amount(amount),
+                    "amountColor": amount_color,
+                    "date": format_date(transaction.get("date")),
+                    "category": transaction.get("category_name") or "Uncategorized",
+                    "needsApproval": not bool(transaction.get("approved", True)),
+                    "memo": clean_memo(transaction.get("memo")),
+                }
+            )
 
         display_count = len(rows)
         if total_count == 0:
