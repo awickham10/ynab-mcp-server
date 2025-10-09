@@ -10,8 +10,10 @@ from fastmcp.server.dependencies import get_access_token
 from .services import YNABService
 from .exceptions import YNABAPIException, BudgetNotFoundException, AccountNotFoundException, PayeeNotFoundException, CategoryNotFoundException
 from .resources import (
-    TRANSACTIONS_WIDGET_META_BASE,
-    TRANSACTIONS_WIDGET_EMBEDDED_RESOURCE_JSON,
+    TRANSACTIONS_WIDGET_ID,
+    TRANSACTION_DETAIL_WIDGET_ID,
+    widget_embedded_resource_json,
+    widget_meta_base,
 )
 
 
@@ -184,8 +186,8 @@ def register_tools(mcp: FastMCP) -> None:
             "category": "transaction-data",
             "supports_compound_filtering": True,
             # Widget / template metadata for OpenAI Apps SDK style rendering
-            **TRANSACTIONS_WIDGET_META_BASE,
-            "openai.com/widget": TRANSACTIONS_WIDGET_EMBEDDED_RESOURCE_JSON,
+            **widget_meta_base(TRANSACTIONS_WIDGET_ID),
+            "openai.com/widget": widget_embedded_resource_json(TRANSACTIONS_WIDGET_ID),
         }
     )
     async def get_transactions(
@@ -526,39 +528,14 @@ def register_tools(mcp: FastMCP) -> None:
             "rows": rows,
         }
 
-        meta = dict(TRANSACTIONS_WIDGET_META_BASE)
-        meta["openai.com/widget"] = TRANSACTIONS_WIDGET_EMBEDDED_RESOURCE_JSON
+        meta = widget_meta_base(TRANSACTIONS_WIDGET_ID)
+        meta["openai.com/widget"] = widget_embedded_resource_json(TRANSACTIONS_WIDGET_ID)
         meta["widget"] = {
             "design_spec": "Compact card summarizing recent YNAB transactions with totals and review states.",
             "complexity_budget": "Within budget: summary metrics and up to six list items.",
         }
 
         return structured_content, meta
-    
-    @mcp.tool(
-        name="get_transaction_detail",
-        tags={"transactions", "readonly", "data-cleanup"},
-        annotations={
-            "title": "Get Transaction Detail",
-            "readOnlyHint": True,
-            "openWorldHint": True
-        },
-        meta={
-            "version": "1.0",
-            "category": "transaction-data",
-            "openai/outputTemplate": "ui://widget/transaction-detail.html",
-            "openai/toolInvocation/invoking": "Displaying the transaction detail",
-            "openai/toolInvocation/invoked": "Displayed the transaction detail"
-        }
-    )
-    async def get_transaction_detail(budget_id: str, transaction_id: str) -> dict:
-        """Get detailed information for a specific transaction
-        
-        Args:
-            budget_id: The ID of the budget
-            transaction_id: The ID of the transaction
-        """
-        pass
 
     @mcp.tool(
         name="get_categories",
