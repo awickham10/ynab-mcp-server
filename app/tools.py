@@ -9,6 +9,10 @@ from fastmcp.server.dependencies import get_access_token
 
 from .services import YNABService
 from .exceptions import YNABAPIException, BudgetNotFoundException, AccountNotFoundException, PayeeNotFoundException, CategoryNotFoundException
+from .resources import (
+    TRANSACTIONS_WIDGET_META_BASE,
+    TRANSACTIONS_WIDGET_EMBEDDED_RESOURCE_JSON,
+)
 
 
 def _is_memo_empty(memo: Optional[str]) -> bool:
@@ -180,11 +184,8 @@ def register_tools(mcp: FastMCP) -> None:
             "category": "transaction-data",
             "supports_compound_filtering": True,
             # Widget / template metadata for OpenAI Apps SDK style rendering
-            "openai/outputTemplate": "ui://widget/transactions-table.html",
-            "openai/toolInvocation/invoking": "Building transactions table",
-            "openai/toolInvocation/invoked": "Transactions table ready",
-            "openai/widgetAccessible": True,
-            "openai/resultCanProduceWidget": True
+            **TRANSACTIONS_WIDGET_META_BASE,
+            "openai.com/widget": TRANSACTIONS_WIDGET_EMBEDDED_RESOURCE_JSON,
         }
     )
     async def get_transactions(
@@ -525,12 +526,11 @@ def register_tools(mcp: FastMCP) -> None:
             "rows": rows,
         }
 
-        meta = {
-            "openai/outputTemplate": "ui://widget/transactions-table.html",
-            "widget": {
-                "design_spec": "Compact card summarizing recent YNAB transactions with totals and review states.",
-                "complexity_budget": "Within budget: summary metrics and up to six list items.",
-            },
+        meta = dict(TRANSACTIONS_WIDGET_META_BASE)
+        meta["openai.com/widget"] = TRANSACTIONS_WIDGET_EMBEDDED_RESOURCE_JSON
+        meta["widget"] = {
+            "design_spec": "Compact card summarizing recent YNAB transactions with totals and review states.",
+            "complexity_budget": "Within budget: summary metrics and up to six list items.",
         }
 
         return structured_content, meta

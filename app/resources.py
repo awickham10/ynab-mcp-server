@@ -1,24 +1,15 @@
-"""Static widget resources for YNAB MCP server.
+"""Static widget resources for YNAB MCP server."""
 
-These resources expose HTML/JS templates that can be referenced via
-`openai/outputTemplate` metadata on tools to render rich UI inside
-OpenAI Apps (SkyBridge) compatible clients.
-"""
+from typing import Final
 
+import mcp.types as types
 from fastmcp import FastMCP
 
+MIME_HTML_SKYBRIDGE: Final[str] = "text/html+skybridge"
+TRANSACTIONS_WIDGET_URI: Final[str] = "ui://widget/transactions-table.html"
+TRANSACTIONS_WIDGET_TITLE: Final[str] = "Transactions list"
 
-def register_resources(mcp: FastMCP) -> None:
-    """Register all widget/resource templates with the MCP server."""
-    # Transactions table widget template
-    @mcp.resource(
-        uri="ui://widget/transactions-table.html",
-        name="transactions_table_widget",
-        mime_type="text/html+skybridge",
-    )
-    async def transactions_table_widget() -> str:
-        """Widget UI template for rendering transactions in a ListView."""
-        return """
+TRANSACTIONS_WIDGET_TEMPLATE: Final[str] = """
 <ListView>
     {rows.map((t) => (
         <ListViewItem
@@ -48,11 +39,48 @@ def register_resources(mcp: FastMCP) -> None:
 </ListView>
 """
 
+TRANSACTIONS_WIDGET_EMBEDDED_RESOURCE: Final[types.EmbeddedResource] = (
+    types.EmbeddedResource(
+        type="resource",
+        resource=types.TextResourceContents(
+            uri=TRANSACTIONS_WIDGET_URI,
+            mimeType=MIME_HTML_SKYBRIDGE,
+            text=TRANSACTIONS_WIDGET_TEMPLATE,
+            title=TRANSACTIONS_WIDGET_TITLE,
+        ),
+    )
+)
+
+TRANSACTIONS_WIDGET_EMBEDDED_RESOURCE_JSON: Final[dict] = (
+    TRANSACTIONS_WIDGET_EMBEDDED_RESOURCE.model_dump(mode="json")
+)
+
+TRANSACTIONS_WIDGET_META_BASE: Final[dict] = {
+    "openai/outputTemplate": TRANSACTIONS_WIDGET_URI,
+    "openai/toolInvocation/invoking": "Building transactions table",
+    "openai/toolInvocation/invoked": "Transactions table ready",
+    "openai/widgetAccessible": True,
+    "openai/resultCanProduceWidget": True,
+}
+
+
+def register_resources(mcp: FastMCP) -> None:
+    """Register all widget/resource templates with the MCP server."""
+
+    @mcp.resource(
+        uri=TRANSACTIONS_WIDGET_URI,
+        name="transactions_table_widget",
+        mime_type=MIME_HTML_SKYBRIDGE,
+    )
+    async def transactions_table_widget() -> str:
+        """Widget UI template for rendering transactions in a ListView."""
+        return TRANSACTIONS_WIDGET_TEMPLATE
+
     # Placeholder resource for future single transaction detail widget
     @mcp.resource(
         uri="ui://widget/transaction-detail.html",
         name="transaction_detail_widget",
-        mime_type="text/html+skybridge",
+        mime_type=MIME_HTML_SKYBRIDGE,
     )
     async def transaction_detail_widget() -> str:
         return (
