@@ -2,12 +2,19 @@
 MCP Tools for YNAB integration
 """
 
-from typing import Optional, List
+from datetime import datetime
+from typing import Optional, List, Tuple
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_access_token
 
 from .services import YNABService
 from .exceptions import YNABAPIException, BudgetNotFoundException, AccountNotFoundException, PayeeNotFoundException, CategoryNotFoundException
+from .resources import (
+    TRANSACTIONS_WIDGET_ID,
+    TRANSACTION_DETAIL_WIDGET_ID,
+    widget_embedded_resource_json,
+    widget_meta_base,
+)
 
 
 def _is_memo_empty(memo: Optional[str]) -> bool:
@@ -174,7 +181,14 @@ def register_tools(mcp: FastMCP) -> None:
             "readOnlyHint": True,
             "openWorldHint": True
         },
-        meta={"version": "1.0", "category": "transaction-data", "supports_compound_filtering": True}
+        meta={
+            "version": "1.1",
+            "category": "transaction-data",
+            "supports_compound_filtering": True,
+            # Widget / template metadata for OpenAI Apps SDK style rendering
+            **widget_meta_base(TRANSACTIONS_WIDGET_ID),
+            "openai.com/widget": widget_embedded_resource_json(TRANSACTIONS_WIDGET_ID),
+        }
     )
     async def get_transactions(
         budget_id: str = "last-used", 
@@ -183,7 +197,8 @@ def register_tools(mcp: FastMCP) -> None:
         category_id: Optional[str] = None,
         since_date: Optional[str] = None,
         transaction_type: Optional[str] = None,
-        empty_memo: Optional[bool] = None
+        empty_memo: Optional[bool] = None,
+        widget: bool = True
     ) -> dict:
         """Get transactions for a specific budget with smart compound filtering
         
@@ -259,8 +274,9 @@ def register_tools(mcp: FastMCP) -> None:
                     else:
                         filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
+                tx_models = [transaction.model_dump() for transaction in filtered_transactions]
                 response = {
-                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "transactions": tx_models,
                     "count": len(filtered_transactions),
                     "account_id": account_id,
                     "budget_id": budget_id
@@ -271,6 +287,10 @@ def register_tools(mcp: FastMCP) -> None:
                     response["category_id"] = category_id
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
+                if widget:
+                    structured_content, meta = _build_transactions_widget_payload(tx_models)
+                    response["structuredContent"] = structured_content
+                    response.setdefault("_meta", {}).update(meta)
                     
                 return response
                 
@@ -295,8 +315,9 @@ def register_tools(mcp: FastMCP) -> None:
                     else:
                         filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
+                tx_models = [transaction.model_dump() for transaction in filtered_transactions]
                 response = {
-                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "transactions": tx_models,
                     "count": len(filtered_transactions),
                     "category_id": category_id,
                     "payee_id": payee_id,
@@ -305,6 +326,10 @@ def register_tools(mcp: FastMCP) -> None:
                 }
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
+                if widget:
+                    structured_content, meta = _build_transactions_widget_payload(tx_models)
+                    response["structuredContent"] = structured_content
+                    response.setdefault("_meta", {}).update(meta)
                 
                 return response
                 
@@ -325,14 +350,19 @@ def register_tools(mcp: FastMCP) -> None:
                     else:
                         filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
+                tx_models = [transaction.model_dump() for transaction in filtered_transactions]
                 response = {
-                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "transactions": tx_models,
                     "count": len(filtered_transactions),
                     "category_id": category_id,
                     "budget_id": budget_id
                 }
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
+                if widget:
+                    structured_content, meta = _build_transactions_widget_payload(tx_models)
+                    response["structuredContent"] = structured_content
+                    response.setdefault("_meta", {}).update(meta)
                 
                 return response
                 
@@ -365,14 +395,19 @@ def register_tools(mcp: FastMCP) -> None:
                     else:
                         filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
+                tx_models = [transaction.model_dump() for transaction in filtered_transactions]
                 response = {
-                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "transactions": tx_models,
                     "count": len(filtered_transactions),
                     "payee_id": payee_id,
                     "budget_id": budget_id
                 }
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
+                if widget:
+                    structured_content, meta = _build_transactions_widget_payload(tx_models)
+                    response["structuredContent"] = structured_content
+                    response.setdefault("_meta", {}).update(meta)
                 
                 return response
             else:
@@ -391,13 +426,18 @@ def register_tools(mcp: FastMCP) -> None:
                     else:
                         filtered_transactions = [t for t in filtered_transactions if not _is_memo_empty(t.memo)]
                 
+                tx_models = [transaction.model_dump() for transaction in filtered_transactions]
                 response = {
-                    "transactions": [transaction.model_dump() for transaction in filtered_transactions],
+                    "transactions": tx_models,
                     "count": len(filtered_transactions),
                     "budget_id": budget_id
                 }
                 if empty_memo is not None:
                     response["empty_memo"] = empty_memo
+                if widget:
+                    structured_content, meta = _build_transactions_widget_payload(tx_models)
+                    response["structuredContent"] = structured_content
+                    response.setdefault("_meta", {}).update(meta)
                 
                 return response
         except BudgetNotFoundException as e:
@@ -410,7 +450,93 @@ def register_tools(mcp: FastMCP) -> None:
             return {"error": str(e), "category_id": e.category_id}
         except YNABAPIException as e:
             return {"error": str(e), "status_code": e.status_code}
-    
+
+    def _build_transactions_widget_payload(transactions: List[dict]) -> Tuple[dict, dict]:
+        """Build structured content and metadata for the transactions widget."""
+
+        limit = 6
+        total_count = len(transactions)
+
+        def format_amount(milliunits: int | None) -> str:
+            if milliunits is None:
+                return ""
+            major = milliunits / 1000.0
+            if major < 0:
+                return f"-${abs(major):,.2f}"
+            return f"${major:,.2f}"
+
+        def format_date(value: Optional[str]) -> str:
+            if not value:
+                return "—"
+            try:
+                parsed = datetime.strptime(value, "%Y-%m-%d")
+                return parsed.strftime("%b %d").replace(" 0", " ")
+            except ValueError:
+                return value
+
+        def clean_memo(memo: Optional[str]) -> Optional[str]:
+            if memo is None:
+                return None
+            text = memo.strip()
+            if not text:
+                return None
+            return text if len(text) <= 40 else f"{text[:37]}…"
+
+        outflow_total = sum((t.get("amount") or 0) for t in transactions if (t.get("amount") or 0) < 0)
+        inflow_total = sum((t.get("amount") or 0) for t in transactions if (t.get("amount") or 0) > 0)
+        net_total = outflow_total + inflow_total
+
+        rows: List[dict] = []
+        for idx, transaction in enumerate(transactions[:limit]):
+            amount = transaction.get("amount")
+            amount_color = "danger" if amount is not None and amount < 0 else "success" if amount and amount > 0 else "secondary"
+            rows.append(
+                {
+                    "id": transaction.get("id") or f"row-{idx}",
+                    "payee": transaction.get("payee_name") or transaction.get("account_name") or "Unknown payee",
+                    "amount": format_amount(amount),
+                    "amountColor": amount_color,
+                    "date": format_date(transaction.get("date")),
+                    "category": transaction.get("category_name") or "Uncategorized",
+                    "needsApproval": not bool(transaction.get("approved", True)),
+                    "memo": clean_memo(transaction.get("memo")),
+                }
+            )
+
+        display_count = len(rows)
+        if total_count == 0:
+            subtitle = "No transactions found"
+        elif total_count > display_count:
+            subtitle = f"Showing {display_count} of {total_count} transactions"
+        else:
+            plural = "transaction" if display_count == 1 else "transactions"
+            subtitle = f"{display_count} {plural}"
+
+        summary = {
+            "title": "Recent transactions",
+            "subtitle": subtitle,
+            "rowCount": total_count,
+            "displayCount": display_count,
+            "outflow": format_amount(outflow_total if outflow_total else 0),
+            "inflow": format_amount(inflow_total if inflow_total else 0),
+            "net": format_amount(net_total),
+            "netColor": "danger" if net_total < 0 else "success" if net_total > 0 else "secondary",
+        }
+
+        structured_content = {
+            "summary": summary,
+            "rows": rows,
+        }
+
+        meta = widget_meta_base(TRANSACTIONS_WIDGET_ID)
+        meta["openai.com/widget"] = widget_embedded_resource_json(TRANSACTIONS_WIDGET_ID)
+        meta["widget"] = {
+            "design_spec": "Compact card summarizing recent YNAB transactions with totals and review states.",
+            "complexity_budget": "Within budget: summary metrics and up to six list items.",
+        }
+
+        return structured_content, meta
+
     @mcp.tool(
         name="get_categories",
         tags={"categories", "budgeting", "readonly"},

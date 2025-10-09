@@ -5,6 +5,10 @@ This server provides Model Context Protocol (MCP) access to YNAB (You Need A Bud
 data through secure OAuth authentication with enterprise-grade architecture.
 """
 
+from __future__ import annotations
+
+import inspect
+
 from fastmcp import FastMCP
 from fastmcp.server.auth import OAuthProxy
 from fastmcp.utilities.logging import get_logger
@@ -13,6 +17,7 @@ from app.auth import YNABTokenVerifier
 from app.config import config
 from app.tools import register_tools
 from app.prompts import register_prompts
+from app.resources import register_resources
 
 logger = get_logger(__name__)
 
@@ -115,12 +120,27 @@ def create_mcp_server() -> FastMCP:
     )
     
     # Create server with OAuth authentication
-    mcp_server = FastMCP(config.server_name, auth=auth_provider)
+    fastmcp_kwargs = {"auth": auth_provider}
+    try:
+        init_signature = inspect.signature(FastMCP)
+    except (TypeError, ValueError):  # pragma: no cover - defensive fallback
+        init_signature = None
+
+    if init_signature is not None:
+        if "stateless_http" in init_signature.parameters:
+            fastmcp_kwargs["stateless_http"] = True
+        if "sse_path" in init_signature.parameters:
+            fastmcp_kwargs["sse_path"] = "/mcp"
+        if "message_path" in init_signature.parameters:
+            fastmcp_kwargs["message_path"] = "/mcp/messages"
+
+    mcp_server = FastMCP(config.server_name, **fastmcp_kwargs)
     
     # Register all tools and prompts
     logger.info("Registering YNAB MCP tools and prompts...")
     register_tools(mcp_server)
     register_prompts(mcp_server)
+    register_resources(mcp_server)
     
     # Log all registered tools and prompts
     logger.info("About to log registered resources...")
@@ -132,3 +152,25 @@ def create_mcp_server() -> FastMCP:
 
 # Create the MCP server instance
 mcp = create_mcp_server()
+
+# Expose a Starlette-compatible app for HTTP/SSE transport when available
+try:
+    if hasattr(mcp, "http_app"):
+        app = mcp.http_app()
+    else:
+        app = mcp.streamable_http_app()
+
+    try:
+        from starlette.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+            allow_credentials=False,
+        )
+    except Exception:  # pragma: no cover - optional dependency
+        pass
+except AttributeError:  # pragma: no cover - FastMCP without HTTP helpers
+    app = None
