@@ -7,6 +7,7 @@ the dashboard inside its iframe sandbox.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 
 from fastmcp import FastMCPApp
@@ -64,12 +65,18 @@ async def show_budget_summary(
     Args:
         budget_id: The ID of the budget (use 'last-used' for the most recent budget).
     """
-    budget = await service.get_budget(budget_id)
-    accounts = await service.get_accounts(budget_id)
     since_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-    transactions = await service.get_transactions(budget_id, since_date=since_date)
-    unapproved = await service.get_transactions(
-        budget_id, transaction_type="unapproved"
+
+    # Fan out the four upstream calls — they're all independent. The
+    # 30-day fetch powers Top Spending + Recent Transactions; the all-time
+    # uncategorized + unapproved fetches power the "needs action" counter,
+    # which has to match YNAB's UI total (which isn't date-bounded).
+    budget, accounts, recent_transactions, all_uncategorized, all_unapproved = await asyncio.gather(
+        service.get_budget(budget_id),
+        service.get_accounts(budget_id),
+        service.get_transactions(budget_id, since_date=since_date),
+        service.get_transactions(budget_id, transaction_type="uncategorized"),
+        service.get_transactions(budget_id, transaction_type="unapproved"),
     )
 
     actionable_account_ids = {
@@ -88,17 +95,18 @@ async def show_budget_summary(
         a.balance for a in accounts if a.on_budget and not a.closed
     )
 
-    needs_action = {t.id for t in unapproved if t.account_id in actionable_account_ids}
+    needs_action = {
+        t.id for t in all_unapproved if t.account_id in actionable_account_ids
+    }
     needs_action.update(
-        t.id for t in transactions
-        if t.category_id is None
-        and t.transfer_account_id is None
+        t.id for t in all_uncategorized
+        if t.transfer_account_id is None
         and t.payee_name != "Starting Balance"
         and t.account_id in actionable_account_ids
     )
 
     category_spending: dict[str, int] = {}
-    for t in transactions:
+    for t in recent_transactions:
         if t.amount < 0 and t.category_name and t.account_id in actionable_account_ids:
             category_spending[t.category_name] = (
                 category_spending.get(t.category_name, 0) + abs(t.amount)
@@ -108,7 +116,7 @@ async def show_budget_summary(
     )[:5]
 
     recent = sorted(
-        (t for t in transactions if t.account_id in actionable_account_ids),
+        (t for t in recent_transactions if t.account_id in actionable_account_ids),
         key=lambda t: t.date,
         reverse=True,
     )[:10]
