@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""
-YNAB MCP Server Runner
+"""YNAB MCP Server entry point."""
 
-Simple runner script for the YNAB MCP server to work around FastMCP module loading issues.
-"""
+import os
 
 from app.main import mcp
 
 if __name__ == "__main__":
-    # This allows FastMCP to find the server instance
-    pass
+    mcp.run(
+        transport="http",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8080)),
+    )

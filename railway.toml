@@ -16,6 +16,7 @@ watchPatterns = [
 ]
 
 [deploy]
+startCommand = "python server.py"
 restartPolicyType = "ALWAYS"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
