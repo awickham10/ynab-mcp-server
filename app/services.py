@@ -391,6 +391,33 @@ class YNABService:
                     # Could be transaction not found, but we don't have a specific exception for this
                     raise
             raise
-        
+
         transaction_data = response["data"]["transaction"]
         return TransactionDetail(**transaction_data)
+
+    async def bulk_update_transactions(
+        self,
+        budget_id: str,
+        updates: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Bulk-update transactions via PATCH /budgets/{id}/transactions.
+
+        Each update dict must include `id` and any fields to change
+        (e.g. `category_id`, `approved`). Returns YNAB's response payload
+        which includes counts of updated/duplicated items.
+        """
+        if not updates:
+            return {"transaction_ids": [], "duplicate_import_ids": []}
+
+        try:
+            response = await self._make_request(
+                "PATCH",
+                f"/budgets/{budget_id}/transactions",
+                json_data={"transactions": updates},
+            )
+        except YNABAPIException as e:
+            if e.status_code == 404:
+                raise BudgetNotFoundException(budget_id)
+            raise
+
+        return response.get("data", {})
