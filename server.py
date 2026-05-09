@@ -13,9 +13,16 @@ if __name__ == "__main__":
     # check in fastmcp 3.2.4 passes — otherwise the server raises invalid_target,
     # which the SDK then fails to serialize (see fastmcp issue: AuthorizationErrorResponse
     # rejects 'invalid_target' as a Literal value).
+    #
+    # stateless_http=True so streamable-HTTP sessions don't pin to one replica.
+    # Railway runs multiple replicas without sticky routing; a session created
+    # on replica A but followed up on replica B would otherwise return
+    # "MCP session has been terminated" from clients like Claude that maintain
+    # session IDs across requests.
     mcp.run(
         transport="http",
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 8080)),
         path="/",
+        stateless_http=True,
     )
