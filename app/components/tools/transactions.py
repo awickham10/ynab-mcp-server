@@ -56,12 +56,15 @@ def _apply_compound_filters(
     transactions: list[TransactionDetail],
     *,
     needs_category: bool = False,
+    actionable_account_ids: set[str] | None = None,
     payee_id: list[str] | str | None = None,
     category_id: str | None = None,
     empty_memo: bool | None = None,
 ) -> list[TransactionDetail]:
     if needs_category:
         transactions = [t for t in transactions if _needs_category(t)]
+    if actionable_account_ids is not None:
+        transactions = [t for t in transactions if t.account_id in actionable_account_ids]
     if payee_id:
         transactions = [t for t in transactions if _matches_payee(t, payee_id)]
     if category_id:
@@ -72,6 +75,12 @@ def _apply_compound_filters(
         else:
             transactions = [t for t in transactions if not _is_memo_empty(t.memo)]
     return transactions
+
+
+async def _fetch_actionable_account_ids(service: YNABService, budget_id: str) -> set[str]:
+    """Account IDs YNAB's UI considers actionable: on-budget, open, not deleted."""
+    accounts = await service.get_accounts(budget_id)
+    return {a.id for a in accounts if a.on_budget and not a.closed and not a.deleted}
 
 
 async def _fetch_to_approve_or_categorize(
@@ -94,15 +103,11 @@ async def _fetch_to_approve_or_categorize(
     fetch_uncategorized = service.get_transactions(
         budget_id, account_id=account_id, since_date=since_date, transaction_type="uncategorized"
     )
-    fetch_accounts = service.get_accounts(budget_id) if account_id is None else None
 
-    if fetch_accounts is not None:
-        unapproved, uncategorized, accounts = await asyncio.gather(
-            fetch_unapproved, fetch_uncategorized, fetch_accounts
+    if account_id is None:
+        unapproved, uncategorized, actionable_account_ids = await asyncio.gather(
+            fetch_unapproved, fetch_uncategorized, _fetch_actionable_account_ids(service, budget_id)
         )
-        actionable_account_ids = {
-            a.id for a in accounts if a.on_budget and not a.closed and not a.deleted
-        }
     else:
         unapproved, uncategorized = await asyncio.gather(fetch_unapproved, fetch_uncategorized)
         actionable_account_ids = None
@@ -154,10 +159,10 @@ async def get_transactions(
     5. No filters → general transactions endpoint
 
     transaction_type values:
-    • 'uncategorized' — YNAB API filter `category_id IS NULL`. The tool then drops
-      transfers and Starting Balance rows (which YNAB reports as uncategorized but
-      don't actually need a category) so callers get the genuine 'needs a category'
-      list.
+    • 'uncategorized' — matches YNAB's UI 'Is: Needs Category' filter. Drops
+      transfers, Starting Balance rows, and (when no specific account_id is
+      provided) transactions on closed or off-budget/tracking accounts so the
+      result matches what the user sees in the UI.
     • 'unapproved' — pass-through to YNAB's `approved=false` filter. Transfers and
       Starting Balance rows are kept because they still need user approval.
     • 'to_approve_or_categorize' — matches YNAB's UI 'X transactions to approve or
@@ -178,50 +183,37 @@ async def get_transactions(
     api_type = transaction_type if transaction_type in _API_TYPES else None
     needs_category_filter = transaction_type == "uncategorized"
 
+    # YNAB's "Is: Needs Category" UI scopes to open on-budget accounts. Match that
+    # scope when the caller didn't pin to a specific account themselves. Fan the
+    # accounts fetch out in parallel with the main transactions call.
+    accounts_task = (
+        asyncio.create_task(_fetch_actionable_account_ids(service, budget_id))
+        if needs_category_filter and account_id is None
+        else None
+    )
+
+    applied_payee_filter = False
+    applied_category_filter = False
+
     try:
         if transaction_type == "to_approve_or_categorize":
             transactions = await _fetch_to_approve_or_categorize(
                 service, budget_id, account_id, since_date
             )
-            return _build_response(
-                _apply_compound_filters(
-                    transactions,
-                    payee_id=payee_id,
-                    category_id=category_id,
-                    empty_memo=empty_memo,
-                ),
-                budget_id=budget_id,
-                account_id=account_id,
-                payee_id=payee_id,
-                category_id=category_id,
-                empty_memo=empty_memo,
-            )
 
-        if account_id:
+        elif account_id:
             transactions = await service.get_transactions(
                 budget_id,
                 account_id=account_id,
                 since_date=since_date,
                 transaction_type=api_type,
             )
-            transactions = _apply_compound_filters(
-                transactions,
-                needs_category=needs_category_filter,
-                payee_id=payee_id,
-                category_id=category_id,
-                empty_memo=empty_memo,
-            )
 
         elif category_id:
             transactions = await service.get_category_transactions(
                 budget_id, category_id, since_date=since_date, transaction_type=api_type
             )
-            transactions = _apply_compound_filters(
-                transactions,
-                needs_category=needs_category_filter,
-                payee_id=payee_id,
-                empty_memo=empty_memo,
-            )
+            applied_category_filter = True
 
         elif payee_id:
             if isinstance(payee_id, list):
@@ -236,30 +228,40 @@ async def get_transactions(
                 transactions = await service.get_payee_transactions(
                     budget_id, payee_id, since_date=since_date, transaction_type=api_type
                 )
-            transactions = _apply_compound_filters(
-                transactions,
-                needs_category=needs_category_filter,
-                empty_memo=empty_memo,
-            )
+            applied_payee_filter = True
 
         else:
             transactions = await service.get_transactions(
                 budget_id, since_date=since_date, transaction_type=api_type
             )
-            transactions = _apply_compound_filters(
-                transactions,
-                needs_category=needs_category_filter,
-                empty_memo=empty_memo,
-            )
 
     except BudgetNotFoundException as e:
+        if accounts_task is not None:
+            accounts_task.cancel()
         raise ToolError(f"Budget {e.budget_id} not found") from e
     except AccountNotFoundException as e:
+        if accounts_task is not None:
+            accounts_task.cancel()
         raise ToolError(f"Account {e.account_id} not found") from e
     except PayeeNotFoundException as e:
+        if accounts_task is not None:
+            accounts_task.cancel()
         raise ToolError(f"Payee {e.payee_id} not found") from e
     except CategoryNotFoundException as e:
+        if accounts_task is not None:
+            accounts_task.cancel()
         raise ToolError(f"Category {e.category_id} not found") from e
+
+    actionable_account_ids = await accounts_task if accounts_task is not None else None
+
+    transactions = _apply_compound_filters(
+        transactions,
+        needs_category=needs_category_filter,
+        actionable_account_ids=actionable_account_ids,
+        payee_id=None if applied_payee_filter else payee_id,
+        category_id=None if applied_category_filter else category_id,
+        empty_memo=empty_memo,
+    )
 
     return _build_response(
         transactions,
