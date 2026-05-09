@@ -10,12 +10,13 @@ bulk-approve action commits every row's current selection in one batch.
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from fastmcp import FastMCPApp
 from fastmcp.dependencies import Depends
 from fastmcp.exceptions import ToolError
-from prefab_ui.actions import PopState, SetState, ShowToast
+from prefab_ui.actions import SetState, ShowToast
 from prefab_ui.actions.mcp import CallTool
 from prefab_ui.components import (
     Badge,
@@ -30,24 +31,27 @@ from prefab_ui.components import (
     ComboboxGroup,
     ComboboxLabel,
     ComboboxOption,
-    Else,
-    ForEach,
     H2,
-    H3,
     If,
     Markdown,
     Muted,
     Row,
     Span,
-    Text,
 )
 from prefab_ui.rx import Rx
 
 from app.dependencies import get_ynab_service
 from app.exceptions import BudgetNotFoundException
+from app.models import TransactionDetail
 from app.services import YNABService
 
 categorize_queue_app = FastMCPApp("categorize_queue")
+
+# Default page size — 150 transactions × 50 categories each is too much DOM,
+# so cap how many rows we render at once. The model can call again for the
+# next batch (or pass a higher limit explicitly).
+DEFAULT_LIMIT = 25
+MAX_LIMIT = 100
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +77,6 @@ async def submit_categorizations(
 
     updates = []
     for item in items:
-        # The widget sends the whole queue row dict, which uses `id`. The model
-        # may also call this directly with `transaction_id`. Accept either.
         txn_id = item.get("transaction_id") or item.get("id")
         if not txn_id:
             continue
@@ -83,6 +85,10 @@ async def submit_categorizations(
             "category_id": item.get("category_id") or None,
             "approved": True,
         })
+
+    if not updates:
+        return {"updated": 0}
+
     try:
         result = await service.bulk_update_transactions(budget_id, updates)
     except BudgetNotFoundException as e:
@@ -104,12 +110,37 @@ def _format_currency(amount: float) -> str:
     return f"{sign}${abs(amount):,.2f}"
 
 
-def _category_options(categories: list, selected: str | None) -> list:
-    """Group categories by their parent group, ready for ComboboxGroup."""
+def _safe_state_key(transaction_id: str) -> str:
+    """State keys must be `[A-Za-z_][A-Za-z0-9_]*`. UUIDs have hyphens; sanitize."""
+    return "txn_" + re.sub(r"[^A-Za-z0-9]", "_", transaction_id)
+
+
+def _group_categories(categories: list) -> dict[str, list]:
     by_group: dict[str, list] = {}
     for cat in categories:
         by_group.setdefault(cat.category_group_name or "Other", []).append(cat)
     return by_group
+
+
+def _build_pending(
+    accounts: list,
+    unapproved: list[TransactionDetail],
+    uncategorized: list[TransactionDetail],
+) -> list[TransactionDetail]:
+    """Same union YNAB's UI uses for 'X transactions to approve or categorize'."""
+    actionable = {a.id for a in accounts if a.on_budget and not a.closed and not a.deleted}
+    pending: dict[str, TransactionDetail] = {}
+    for t in unapproved:
+        if t.account_id in actionable:
+            pending[t.id] = t
+    for t in uncategorized:
+        if (
+            t.transfer_account_id is None
+            and t.payee_name != "Starting Balance"
+            and t.account_id in actionable
+        ):
+            pending[t.id] = t
+    return sorted(pending.values(), key=lambda t: t.date, reverse=True)
 
 
 @categorize_queue_app.ui(
@@ -120,8 +151,10 @@ def _category_options(categories: list, selected: str | None) -> list:
         "Pass a `suggestions` dict mapping transaction_id -> category_id with "
         "your best guess per row; the widget pre-selects them. Optionally pass "
         "`notes` mapping transaction_id -> short reasoning string shown next to "
-        "the row. Use this when the user asks to clean up, categorize, approve, "
-        "or process pending transactions."
+        "the row. The widget shows up to `limit` transactions at a time "
+        f"(default {DEFAULT_LIMIT}); call again with a higher limit or after "
+        "the first batch is processed to load more. Use this when the user "
+        "asks to clean up, categorize, approve, or process pending transactions."
     ),
     tags={"transactions", "categorize", "approve", "readonly"},
     annotations={
@@ -135,6 +168,7 @@ async def categorize_queue(
     budget_id: str = "last-used",
     suggestions: dict[str, str] | None = None,
     notes: dict[str, str] | None = None,
+    limit: int = DEFAULT_LIMIT,
     service: YNABService = Depends(get_ynab_service),
 ) -> Column:
     """Render the categorize-and-approve queue.
@@ -142,13 +176,14 @@ async def categorize_queue(
     Args:
         budget_id: The ID of the budget (use 'last-used' for the most recent budget).
         suggestions: Optional mapping of transaction_id -> category_id with the
-            LLM's best categorization suggestion per row. Pre-selects the
-            dropdown so the user just confirms.
+            LLM's best categorization suggestion per row. Pre-selects the dropdown.
         notes: Optional mapping of transaction_id -> short reasoning string,
             shown beneath each row to explain the suggestion.
+        limit: Max rows to render. Capped at 100 to avoid runaway DOM size.
     """
     suggestions = suggestions or {}
     notes = notes or {}
+    limit = max(1, min(limit, MAX_LIMIT))
 
     accounts, unapproved, uncategorized, all_categories = await asyncio.gather(
         service.get_accounts(budget_id),
@@ -157,111 +192,114 @@ async def categorize_queue(
         service.get_categories(budget_id),
     )
 
-    actionable_account_ids = {
-        a.id for a in accounts if a.on_budget and not a.closed and not a.deleted
-    }
-
-    pending: dict[str, Any] = {}
-    for t in unapproved:
-        if t.account_id in actionable_account_ids:
-            pending[t.id] = t
-    for t in uncategorized:
-        if (
-            t.transfer_account_id is None
-            and t.payee_name != "Starting Balance"
-            and t.account_id in actionable_account_ids
-        ):
-            pending[t.id] = t
-
-    pending_list = sorted(pending.values(), key=lambda t: t.date, reverse=True)
+    pending = _build_pending(accounts, unapproved, uncategorized)
+    total_pending = len(pending)
+    visible = pending[:limit]
 
     categories = [
         c
         for c in all_categories
-        if not c.hidden and not c.deleted and c.category_group_name != "Internal Master Category"
+        if not c.hidden
+        and not c.deleted
+        and c.category_group_name != "Internal Master Category"
     ]
-    grouped_categories = _category_options(categories, None)
+    grouped = _group_categories(categories)
 
-    initial_rows = [
-        {
-            "id": t.id,
-            "date": t.date,
-            "payee": t.payee_name or "(no payee)",
-            "amount": t.amount / 1000.0,
-            "amount_label": _format_currency(t.amount / 1000.0),
-            "memo": t.memo or "",
-            "category_id": suggestions.get(t.id) or t.category_id or "",
-            "had_suggestion": bool(suggestions.get(t.id)),
-            "note": notes.get(t.id, ""),
-        }
-        for t in pending_list
-    ]
+    suggested_count = sum(1 for t in visible if suggestions.get(t.id))
 
-    suggested_count = sum(1 for t in pending_list if suggestions.get(t.id))
+    # Build the initial state block keyed by sanitized transaction id. Per-row
+    # state lives at fixed keys (no template paths) so Combobox bindings
+    # resolve cleanly and the LLM's suggestions actually pre-select.
+    initial_state: dict[str, Any] = {}
+    for t in visible:
+        key = _safe_state_key(t.id)
+        initial_state[f"{key}_category"] = (
+            suggestions.get(t.id) or t.category_id or ""
+        )
+        initial_state[f"{key}_visible"] = True
 
-    with Column(gap=4, let={"queue": initial_rows}) as page:
+    with Column(gap=4, let=initial_state) as page:
         H2("Approve or categorize transactions")
 
-        with If("queue.length === 0"):
-            Markdown("**All caught up.** No pending transactions in your active accounts.")
+        if total_pending == 0:
+            Markdown(
+                "**All caught up.** No pending transactions in your active accounts."
+            )
+            return page
 
-        with Else():
-            with Row(gap=3):
-                Muted("{{ queue.length }} pending")
-                if suggested_count:
-                    Badge(
-                        f"{suggested_count} pre-suggested",
-                        variant="secondary",
-                    )
-                Button(
-                    "Approve all with current selections",
-                    variant="default",
-                    onClick=[
-                        CallTool(
-                            "submit_categorizations",
-                            arguments={
-                                "budget_id": budget_id,
-                                "items": Rx("queue"),
-                            },
-                            onSuccess=[
-                                SetState("queue", []),
-                                ShowToast("Approved everything in the queue"),
-                            ],
-                            onError=ShowToast("Bulk approve failed — try one at a time"),
-                        )
-                    ],
+        # Header summary
+        with Row(gap=3):
+            Muted(
+                f"Showing {len(visible)} of {total_pending} pending"
+                if total_pending > len(visible)
+                else f"{total_pending} pending"
+            )
+            if suggested_count:
+                Badge(f"{suggested_count} pre-suggested", variant="secondary")
+
+        # Bulk-approve current page
+        Button(
+            f"Approve all {len(visible)} with current selections",
+            variant="default",
+            onClick=[
+                CallTool(
+                    "submit_categorizations",
+                    arguments={
+                        "budget_id": budget_id,
+                        "items": [
+                            {
+                                "transaction_id": t.id,
+                                "category_id": Rx(
+                                    f"{_safe_state_key(t.id)}_category"
+                                ),
+                            }
+                            for t in visible
+                        ],
+                    },
+                    onSuccess=(
+                        [
+                            SetState(f"{_safe_state_key(t.id)}_visible", False)
+                            for t in visible
+                        ]
+                        + [ShowToast("Approved current page")]
+                    ),
+                    onError=ShowToast("Bulk approve failed — try one at a time"),
                 )
+            ],
+        )
 
-            with ForEach("queue") as (idx, txn):
+        for t in visible:
+            key = _safe_state_key(t.id)
+            category_state = f"{key}_category"
+            visible_state = f"{key}_visible"
+
+            with If(visible_state):
                 with Card():
                     with CardHeader():
                         with Row(gap=3):
-                            CardTitle(txn.payee)
-                            Span(txn["date"])
-                            Span(txn.amount_label)
-                        with If(txn.note != ""):
-                            CardDescription(txn.note)
-                        with If(txn.memo != ""):
-                            Muted(f"Memo: {txn.memo}")
+                            CardTitle(t.payee_name or "(no payee)")
+                            Span(t.date)
+                            Span(_format_currency(t.amount / 1000.0))
+                        if notes.get(t.id):
+                            CardDescription(notes[t.id])
+                        if t.memo:
+                            Muted(f"Memo: {t.memo}")
                     with CardContent():
                         with Row(gap=3):
                             with Combobox(
-                                name=f"queue.{idx}.category_id",
+                                name=category_state,
                                 placeholder="Pick a category…",
                                 searchPlaceholder="Search categories",
                             ):
-                                for group_name, group_cats in grouped_categories.items():
+                                for group_name, group_cats in grouped.items():
                                     with ComboboxGroup():
                                         ComboboxLabel(group_name)
                                         for cat in group_cats:
-                                            ComboboxOption(
-                                                cat.name,
-                                                value=cat.id,
-                                            )
+                                            ComboboxOption(cat.name, value=cat.id)
                             Button(
                                 "Approve",
                                 variant="success",
-                                disabled=txn.category_id == "",
+                                disabled=Rx(category_state) == "",
                                 onClick=[
                                     CallTool(
                                         "submit_categorizations",
@@ -269,13 +307,13 @@ async def categorize_queue(
                                             "budget_id": budget_id,
                                             "items": [
                                                 {
-                                                    "transaction_id": txn.id,
-                                                    "category_id": txn.category_id,
+                                                    "transaction_id": t.id,
+                                                    "category_id": Rx(category_state),
                                                 }
                                             ],
                                         },
                                         onSuccess=[
-                                            PopState("queue", index=idx),
+                                            SetState(visible_state, False),
                                             ShowToast("Approved"),
                                         ],
                                         onError=ShowToast("Update failed"),
@@ -285,7 +323,7 @@ async def categorize_queue(
                             Button(
                                 "Skip",
                                 variant="ghost",
-                                onClick=PopState("queue", index=idx),
+                                onClick=SetState(visible_state, False),
                             )
 
     return page
