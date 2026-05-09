@@ -162,10 +162,13 @@ async def show_budget_summary(
                     DataTable(
                         columns=[
                             DataTableColumn(key="category", header="Category", sortable=True),
-                            DataTableColumn(key="spent", header="Spent", sortable=True),
+                            DataTableColumn(
+                                key="spent", header="Spent",
+                                sortable=True, format="currency", align="right",
+                            ),
                         ],
                         rows=[
-                            {"category": name, "spent": _format_currency(amount)}
+                            {"category": name, "spent": amount / 1000}
                             for name, amount in top_spending
                         ],
                     )
@@ -180,17 +183,23 @@ async def show_budget_summary(
                 if recent:
                     DataTable(
                         columns=[
-                            DataTableColumn(key="date", header="Date", sortable=True),
+                            DataTableColumn(
+                                key="date", header="Date",
+                                sortable=True, format="date",
+                            ),
                             DataTableColumn(key="payee", header="Payee"),
                             DataTableColumn(key="category", header="Category"),
-                            DataTableColumn(key="amount", header="Amount", sortable=True),
+                            DataTableColumn(
+                                key="amount", header="Amount",
+                                sortable=True, format="currency", align="right",
+                            ),
                         ],
                         rows=[
                             {
                                 "date": t.date,
                                 "payee": t.payee_name or "—",
                                 "category": t.category_name or "(uncategorized)",
-                                "amount": _format_currency(t.amount),
+                                "amount": t.amount / 1000,
                             }
                             for t in recent
                         ],
