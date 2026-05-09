@@ -1,0 +1,24 @@
+# Railway deploy configuration.
+# Custom domains live in the Railway dashboard — not configurable here.
+# Env vars (YNAB_*, REDIS_URL, JWT_SIGNING_KEY, STORAGE_ENCRYPTION_KEY) live
+# on the service; referenced from code via app/config.py.
+
+[build]
+builder = "RAILPACK"
+# Only redeploy when something that affects the running server actually changes.
+watchPatterns = [
+    "app/**",
+    "server.py",
+    "fastmcp.json",
+    "pyproject.toml",
+    "uv.lock",
+    "railway.toml",
+]
+
+[deploy]
+restartPolicyType = "ALWAYS"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+# Brief overlap so OAuth requests in flight finish before the old replica drops.
+overlapSeconds = 30
+drainingSeconds = 15

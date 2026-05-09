@@ -9,6 +9,8 @@ from fastmcp.server.providers import FileSystemProvider
 from fastmcp.utilities.logging import get_logger
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse
 
 from app.auth import YNABTokenVerifier
 from app.config import config
@@ -100,6 +102,10 @@ def create_mcp_server() -> FastMCP:
 
     if config.YNAB_READ_ONLY:
         server.enable(tags={"readonly"}, only=True)
+
+    @server.custom_route("/health", methods=["GET"])
+    async def health_check(request: Request) -> PlainTextResponse:
+        return PlainTextResponse("OK")
 
     return server
 
