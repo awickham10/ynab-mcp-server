@@ -47,6 +47,7 @@ def _format_currency(milliunits: int) -> str:
         "the user asks for a budget overview, account balances, or a snapshot "
         "of where their money is going."
     ),
+    tags={"budget", "dashboard", "readonly"},
     annotations={
         "readOnlyHint": True,
         "openWorldHint": False,
