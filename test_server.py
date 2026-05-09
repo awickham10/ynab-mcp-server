@@ -14,17 +14,15 @@ async def test_server():
         print(f"✓ Server has auth: {mcp.auth is not None}")
         
         # Test that tools are registered
-        tools = await mcp.get_tools()
+        tools = await mcp.list_tools()
         print(f"✓ Registered tools: {len(tools)}")
-        for tool_name in tools:
-            tool = await mcp.get_tool(tool_name)
+        for tool in tools:
             print(f"  - {tool.name}: {tool.description or 'No description'}")
-        
-        # Test that prompts are registered  
-        prompts = await mcp.get_prompts()
+
+        # Test that prompts are registered
+        prompts = await mcp.list_prompts()
         print(f"✓ Registered prompts: {len(prompts)}")
-        for prompt_name in prompts:
-            prompt = await mcp.get_prompt(prompt_name)
+        for prompt in prompts:
             print(f"  - {prompt.name}: {prompt.description or 'No description'}")
             
         print("\n✅ All tests passed! Server is ready.")

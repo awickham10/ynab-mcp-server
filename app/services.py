@@ -20,59 +20,59 @@ from .exceptions import (
 
 class YNABService:
     """Service for interacting with YNAB API"""
-    
-    def __init__(self, access_token: str):
+
+    def __init__(self, access_token: str, client: httpx.AsyncClient):
         self.access_token = access_token
+        self.client = client
         self.base_url = config.ynab_api_base_url
         self.headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
-    
+
     async def _make_request(
-        self, 
-        method: str, 
-        endpoint: str, 
-        params: Optional[Dict[str, Any]] = None, 
+        self,
+        method: str,
+        endpoint: str,
+        params: Optional[Dict[str, Any]] = None,
         json_data: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Make authenticated request to YNAB API"""
         url = f"{self.base_url}{endpoint}"
-        
-        async with httpx.AsyncClient(timeout=config.request_timeout) as client:
-            try:
-                response = await client.request(
-                    method=method,
-                    url=url,
-                    headers=self.headers,
-                    params=params or {},
-                    json=json_data
+
+        try:
+            response = await self.client.request(
+                method=method,
+                url=url,
+                headers=self.headers,
+                params=params or {},
+                json=json_data
+            )
+
+            if response.status_code == 401:
+                raise AuthenticationException("Invalid or expired access token")
+            elif response.status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                raise RateLimitException(retry_after=int(retry_after) if retry_after else None)
+            elif response.status_code == 404:
+                error_data = response.json() if response.content else {}
+                raise YNABAPIException(
+                    error_data.get("error", {}).get("detail", "Resource not found"),
+                    status_code=404,
+                    response_data=error_data
                 )
-                
-                if response.status_code == 401:
-                    raise AuthenticationException("Invalid or expired access token")
-                elif response.status_code == 429:
-                    retry_after = response.headers.get("Retry-After")
-                    raise RateLimitException(retry_after=int(retry_after) if retry_after else None)
-                elif response.status_code == 404:
-                    error_data = response.json() if response.content else {}
-                    raise YNABAPIException(
-                        error_data.get("error", {}).get("detail", "Resource not found"),
-                        status_code=404,
-                        response_data=error_data
-                    )
-                elif not response.is_success:
-                    error_data = response.json() if response.content else {}
-                    raise YNABAPIException(
-                        error_data.get("error", {}).get("detail", f"API error: {response.status_code}"),
-                        status_code=response.status_code,
-                        response_data=error_data
-                    )
-                
-                return response.json()
-                
-            except httpx.RequestError as e:
-                raise YNABAPIException(f"Network error: {str(e)}")
+            elif not response.is_success:
+                error_data = response.json() if response.content else {}
+                raise YNABAPIException(
+                    error_data.get("error", {}).get("detail", f"API error: {response.status_code}"),
+                    status_code=response.status_code,
+                    response_data=error_data
+                )
+
+            return response.json()
+
+        except httpx.RequestError as e:
+            raise YNABAPIException(f"Network error: {str(e)}")
     
     def _validate_date_format(self, date_str: str) -> None:
         """Validate date string format"""
@@ -391,6 +391,33 @@ class YNABService:
                     # Could be transaction not found, but we don't have a specific exception for this
                     raise
             raise
-        
+
         transaction_data = response["data"]["transaction"]
         return TransactionDetail(**transaction_data)
+
+    async def bulk_update_transactions(
+        self,
+        budget_id: str,
+        updates: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Bulk-update transactions via PATCH /budgets/{id}/transactions.
+
+        Each update dict must include `id` and any fields to change
+        (e.g. `category_id`, `approved`). Returns YNAB's response payload
+        which includes counts of updated/duplicated items.
+        """
+        if not updates:
+            return {"transaction_ids": [], "duplicate_import_ids": []}
+
+        try:
+            response = await self._make_request(
+                "PATCH",
+                f"/budgets/{budget_id}/transactions",
+                json_data={"transactions": updates},
+            )
+        except YNABAPIException as e:
+            if e.status_code == 404:
+                raise BudgetNotFoundException(budget_id)
+            raise
+
+        return response.get("data", {})
