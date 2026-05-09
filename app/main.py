@@ -12,6 +12,7 @@ from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 
+from app.apps import budget_summary_app
 from app.auth import YNABTokenVerifier
 from app.config import config
 from app.lifespan import http_client_lifespan
@@ -96,7 +97,7 @@ def create_mcp_server() -> FastMCP:
         config.server_name,
         instructions=SERVER_INSTRUCTIONS,
         auth=auth_provider,
-        providers=[fs_provider],
+        providers=[fs_provider, budget_summary_app],
         lifespan=http_client_lifespan,
     )
 

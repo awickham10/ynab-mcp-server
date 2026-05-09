@@ -10,4 +10,5 @@ dependencies = [
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
     "py-key-value-aio[redis]>=0.4.4",
+    "prefab-ui>=0.19.1",
 ]
