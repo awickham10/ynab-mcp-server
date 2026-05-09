@@ -13,12 +13,13 @@ class YNABConfig(BaseSettings):
     YNAB_BASE_URL: AnyHttpUrl = "http://localhost:8000"
     YNAB_READ_ONLY: bool = False
 
-    # Production session persistence (required for multi-replica / restartable
+    # FastMCP session persistence (required for multi-replica / restartable
     # deployments — without these, FastMCP's HS256 signing key and OAuth client
     # storage are ephemeral and clients lose their sessions on every restart).
+    # Not YNAB-specific; these belong to the FastMCP OAuth proxy itself.
     JWT_SIGNING_KEY: SecretStr | None = None
-    REDIS_URL: SecretStr | None = None
     STORAGE_ENCRYPTION_KEY: SecretStr | None = None
+    REDIS_URL: SecretStr | None = None  # Railway injects this when Redis is attached
 
     # API settings
     ynab_api_base_url: str = "https://api.ynab.com/v1"
